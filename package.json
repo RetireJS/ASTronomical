@@ -6,10 +6,12 @@
   "scripts": {
     "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",
     "typecheck": "tsc --noEmit",
+    "build": "tsc",
     "watch": "tsc --watch",
     "check": "npm run lint && npm run typecheck",
     "dev": "tsc --watch",
-    "testWatch": "jest --watchAll"
+    "testWatch": "jest --watchAll",
+    "test": "jest --ci"
   },
   "author": "",
   "license": "ISC",
