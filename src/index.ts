@@ -14,7 +14,6 @@ const log = {
 
 
 function beginHandle<T extends Record<string, QNode>>(queries: T, path: ParseResult<Babel.File>) : Record<keyof T, Result[]> {
-  log.debug("DEY SEE ME PARSING");
   let rootPath: NodePath<Babel.Node> | undefined = undefined;
   traverse(path, { 
     Program(path) {
