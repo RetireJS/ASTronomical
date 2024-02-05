@@ -15,7 +15,7 @@
   },
   "repository": {
 		"type": "git",
-		"url": "https://github.com/eoftedal/babel-q.git"
+		"url": "https://github.com/RetireJS/babel-q.git"
 	},
   "author": "Erlend Oftedal <erlend@oftedal.no>",
   "license": "Apache-2.0",

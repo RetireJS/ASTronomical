@@ -38,6 +38,7 @@ type State = {
   child: FNode[][];
   descendant: FNode[][];
   filters: FilterResult[][];
+  matches: [FNode, NodePath<Babel.Node>][][];
 }
 type FilterCondition = {
   type: "and" | "or" | "equals";
@@ -129,6 +130,7 @@ function isMatch(fnode: FNode, path: NodePath<Babel.Node>) : boolean {
 
 function addIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State) {
   if (!isMatch(fnode, path)) return;
+  state.matches[state.depth].push([fnode, path]);
   if (fnode.node.filter) {
     const filter = createFilter(fnode.node.filter, []);
     const filteredResult: Array<Result> = [];
@@ -149,10 +151,9 @@ function isPrimitive(value: unknown) : boolean {
 }
 
 function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<Babel.Node>) {
-  if (!fnode.node.attribute) return;
-  if (!fnode.node.value) return;
-  if (fnode.node.child) return;
-  if (fnode.node.filter) return;
+  if (!fnode.node.attribute || !fnode.node.value) return;
+  if (fnode.node.child || fnode.node.filter) return;
+  if (!Object.hasOwn(path.node, fnode.node.value)) return;
   const lookup = path.get(fnode.node.value);
   const nodes = (Array.isArray(lookup) ? lookup : [lookup])
     .filter(n => n.node != undefined)
@@ -245,11 +246,9 @@ function resolveDirectly(node: QNode, path: NodePath<Babel.Node>) : Result[] {
 }
 
 function addResultIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State) {
-  if (!isMatch(fnode, path)) return;
   const filters = state.filters[state.depth].filter(f => f.node == path.node && f.qNode == fnode.node);
   const matchingFilters = filters.filter(f => evaluateFilter(f.filter, path).length > 0);
   log.debug("RESULT MATCH", fnode.node.value, breadCrumb(path), filters.length, matchingFilters.length);
-  if (filters.length > 0) log.debug("HOLA FILTROS", filters, matchingFilters);
   if (fnode.node.child) {
     if (fnode.node.binding && (filters.length == 0 || matchingFilters.length > 0)) {
       const binding = resolveBinding(path);
@@ -281,7 +280,8 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
     depth: 0,
     child: [[],[]],
     descendant: [[],[]],
-    filters: [[],[]]
+    filters: [[],[]],
+    matches: [[]]
   };
   Object.entries(queries).forEach(([name, node]) => {
     createFNodeAndAddToState(node, results[name], state);
@@ -296,6 +296,7 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
       state.child.push([]);
       state.descendant.push([]);
       state.filters.push([]);
+      state.matches.push([]);
       state.child[state.depth].forEach(fnode => addIfTokenMatch(fnode, path, state));
       state.descendant.slice(0, state.depth+1).forEach(fnodes => 
         fnodes.forEach(fnode => addIfTokenMatch(fnode, path, state))
@@ -303,18 +304,18 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
     },
     exit(path, state) {
       log.debug("EXIT", breadCrumb(path));
+      // Check for attributes as not all attributes are visited
       state.child[state.depth +1].forEach(fnode => addPrimitiveAttributeIfMatch(fnode, path));
-      state.descendant.slice(0, state.depth+2).forEach(fnodes => 
+      state.descendant.forEach(fnodes => 
         fnodes.forEach(fnode => addPrimitiveAttributeIfMatch(fnode, path))
       );
-      state.child[state.depth].forEach(fnode => addResultIfTokenMatch(fnode, path, state));
-      state.descendant.slice(0, state.depth+1).forEach(fnodes => 
-        fnodes.forEach(fnode => addResultIfTokenMatch(fnode, path, state))
-      );
+
+      state.matches[state.depth].forEach(([fNode, path]) => addResultIfTokenMatch(fNode, path, state));
       state.depth--;
       state.child.pop();
       state.descendant.pop();
       state.filters.pop();
+      state.matches.pop();
     }
   }, root.scope, state, root);
   return results;
