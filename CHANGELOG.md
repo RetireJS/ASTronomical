@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta.4] - 2024-02-06
+
+## Bugfix
+
+* Fix bug in resolve `$$`
+
 ## [1.0.0-beta.3] - 2024-02-06
 
 ## Added

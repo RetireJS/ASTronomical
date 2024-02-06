@@ -3,6 +3,7 @@ import * as Babel from "@babel/types";
 import { parseSync } from "@babel/core";
 import { parse, QNode } from "./parseQuery";
 import { ParseResult } from "@babel/parser";
+import { isIdentifier } from "@babel/types";
 
 const debugLogEnabled = false;
 
@@ -188,9 +189,9 @@ function evaluateFilter(filter: FilterNode, path: NodePath<Babel.Node>) : Result
   return filter.result;
 }
 function resolveBinding(path: NodePath<Babel.Node>) : NodePath<Babel.Node> | undefined {
+  if (!isIdentifier(path.node)) return undefined;
   log.debug("RESOLVING BINDING FOR ", path.node);
-  if (!("name" in path.node)) return undefined;
-  const name = path.node["name"];
+  const name = path.node.name;
   if (name == undefined || typeof name != "string") return undefined;
   const binding = path.scope.getBinding(name);
   if (!binding) return undefined;
@@ -229,7 +230,7 @@ function resolveDirectly(node: QNode, path: NodePath<Babel.Node>) : Result[] {
     if (nodes.length == 0) return [];
     paths = nodes;
     if (startNode.resolve) {
-      const resolved = paths.map(p => resolveBinding(p)).filter(isDefined).map(p => p.get("init")).flatMap(toArray).filter(isDefined);
+      const resolved = paths.map(p => resolveBinding(p)).filter(isDefined).map(p => p.get("init")).flatMap(toArray).filter(p => p.node != undefined).filter(isDefined);
       if (resolved.length > 0) paths = resolved;
     } else if (startNode.binding) {
       paths = paths.map(p => resolveBinding(p)).filter(isDefined);
@@ -255,14 +256,12 @@ function addResultIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: 
   if (filters.length > 0 && matchingFilters.length == 0) return;
 
   if (fnode.node.resolve) {
-    let paths = [path];
-    const resolved = toArray(resolveBinding(path)?.get("init")).filter(isDefined);
-    if (resolved.length > 0) paths = resolved;
+    const [resolved] = toArray(resolveBinding(path)?.get("init")).filter(isDefined).filter(p => p.node != undefined);
     if (fnode.node.child) {
-      const result = resolveDirectly(fnode.node.child, paths[0]);
+      const result = resolveDirectly(fnode.node.child, resolved ?? path);
       fnode.result.push(...result);
     } else {
-      fnode.result.push(...paths.map(p => p.node));
+      fnode.result.push(path.node);
     }
   } else if (fnode.node.binding) {
     const binding = resolveBinding(path);
