@@ -194,4 +194,11 @@ describe('testing index file', () => {
     const nodes = query(ast!, `//FunctionDeclaration[/:id/:name == 'a']//FunctionDeclaration[/:id/:name == 'b']//VariableDeclaration//Identifier/:name`);
     expect(nodes).toEqual(['c']);
   })
+
+  test("should resolve value", () => {
+    const code = "let x = 1; let y = 2; x = y; y = 3";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, "//AssignmentExpression/$$:right/:value");
+    expect(nodes).toEqual([2, 3]);
+  })
 });

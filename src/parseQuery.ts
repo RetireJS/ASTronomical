@@ -59,6 +59,11 @@ export function tokenize(input: string) : Token[] {
       s++;
       continue;
     }
+    if (input[s] == "$" && input[s+1] == "$") {
+      result.push({ type : "resolveSelector" });
+      s+=2;
+      continue;
+    }
     if (input[s] == "$") {
       result.push({ type : "bindingSelector" });
       s++;
@@ -122,6 +127,7 @@ type BaseNode = {
   type: string;
   attribute?: boolean;
   binding?: boolean;
+  resolve?: boolean;
   filter?: QNode;
   value?: string;
   child?: QNode;
@@ -132,6 +138,7 @@ export type Selector = BaseNode & ({
   attribute: boolean;
   binding: boolean;
   value: string;
+  resolve: boolean;
 } | {
   type: "parent"
 });
@@ -214,12 +221,14 @@ function buildTree(tokens: Token[]) : QNode {
       return { type: "parent", child: buildTree(tokens) };
     }
     const modifiers: Token[] = [];
-    while(next && (next?.type == "attributeSelector" || next?.type == "bindingSelector")) {
+    while(next && (next?.type == "attributeSelector" || next?.type == "bindingSelector" || next?.type == "resolveSelector")) {
       modifiers.push(next);
       next = tokens.shift();
     }
     const isAttribute = modifiers.some(m => m.type == "attributeSelector");
     const isBinding = modifiers.some(m => m.type == "bindingSelector");
+    const isResolve = modifiers.some(m => m.type == "resolveSelector");
+    if (isResolve && isBinding) throw new Error("Cannot have both resolve and binding");
     if (!next || !next.value || (!isAttribute && !isIdentifierToken(next))) throw new Error("Unexpected or missing token: " + next?.type);
     const identifer = next.value;
     let filter: QNode | undefined = undefined;
@@ -236,6 +245,7 @@ function buildTree(tokens: Token[]) : QNode {
       value: identifer,
       attribute: isAttribute,
       binding: isBinding,
+      resolve: isResolve,
       filter: filter,
       child: child
     }

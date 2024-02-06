@@ -41,6 +41,7 @@ the object is bound to a parameter of the surrounding function, an return the as
 * `/:<name>` - find an attribute of the current node with the given name
 * `//:<name>` - find an attribute of the current node with the given name regardless of whether it's on the current node or on a descendant
 * `/$:<name>` - find the binding of an Identifier
+* `/$$:<name>` - return the binding or the attribute if bining cannot be resolved (helpful if a variable is sometimes directly assigned and sometimes not)
 * `[]` - apply a filter to the node
 * `&&`, `||` - logical conditions of a filter
 * `==` - comparison in filter

@@ -242,4 +242,9 @@ describe('testing index file', () => {
     const condition = node?.child?.child?.child?.filter as Condition;
     expect(condition.left.binding).toEqual(true);
   });
+  test('auto resolve value', () => {
+    const node = parse(`//AssignmentExpression/$$:right/:value`);
+    expect(node).toMatchObject({ type: "descendant", value: "AssignmentExpression" });
+    expect(node?.child).toMatchObject({ type: "child", resolve: true });
+  })
 });

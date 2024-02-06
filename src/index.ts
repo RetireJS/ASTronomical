@@ -140,7 +140,7 @@ function addIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State)
       createFNodeAndAddToState(fnode.node.child, filteredResult, state); 
     }
   } else {
-    if (fnode.node.child && !fnode.node.binding) {
+    if (fnode.node.child && !fnode.node.binding && !fnode.node.resolve) {
       createFNodeAndAddToState(fnode.node.child, fnode.result, state); 
     }  
   }
@@ -211,6 +211,7 @@ function resolveFilterWithParent(node: QNode, path: NodePath<Babel.Node>) : Resu
   }
   return resolveDirectly(startNode, startPath);
 }
+const toArray = <T>(value: T | T[]) : T[] => Array.isArray(value) ? value : [value];
 
 function isDefined<T>(value: T | undefined | null) : value is T {
   return value != undefined && value != null;
@@ -224,11 +225,14 @@ function resolveDirectly(node: QNode, path: NodePath<Babel.Node>) : Result[] {
     const lookup = startNode.value;
     if (!lookup) throw new Error("Selector must have a value");
     log.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
-    const nodes = paths.map(n => n.get(lookup)).map(n => Array.isArray(n) ? n : [n]).flat().filter(n => n.node != undefined);
+    const nodes = paths.map(n => n.get(lookup)).map(toArray).flat().filter(n => n.node != undefined);
     log.debug("LOOKUP", lookup, nodes.map(n => n.node), nodes.filter(n => n.node == undefined));
     if (nodes.length == 0) return [];
     paths = nodes;
-    if (startNode.binding) {
+    if (startNode.resolve) {
+      const resolved = paths.map(p => resolveBinding(p)).filter(isDefined).map(p => p.get("init")).flatMap(toArray).filter(isDefined);
+      if (resolved.length > 0) paths = resolved;
+    } else if (startNode.binding) {
       paths = paths.map(p => resolveBinding(p)).filter(isDefined);
     }
     if (!startNode.child) {
@@ -249,28 +253,33 @@ function addResultIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: 
   const filters = state.filters[state.depth].filter(f => f.node == path.node && f.qNode == fnode.node);
   const matchingFilters = filters.filter(f => evaluateFilter(f.filter, path).length > 0);
   log.debug("RESULT MATCH", fnode.node.value, breadCrumb(path), filters.length, matchingFilters.length);
-  if (fnode.node.child) {
-    if (fnode.node.binding && (filters.length == 0 || matchingFilters.length > 0)) {
-      const binding = resolveBinding(path);
-      if (binding) {
+  if (filters.length > 0 && matchingFilters.length == 0) return;
+
+  if (fnode.node.resolve) {
+    let paths = [path];
+    const resolved = toArray(resolveBinding(path)?.get("init")).filter(isDefined);
+    if (resolved.length > 0) paths = resolved;
+    if (fnode.node.child) {
+      const result = resolveDirectly(fnode.node.child, paths[0]);
+      fnode.result.push(...result);
+    } else {
+      fnode.result.push(...paths.map(p => p.node));
+    }
+  } else if (fnode.node.binding) {
+    const binding = resolveBinding(path);
+    if (binding) {
+      if (fnode.node.child) {
         const result = resolveDirectly(fnode.node.child, binding);
         fnode.result.push(...result);
-      }
-    }
-    if (matchingFilters.length > 0) {
-      log.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
-      fnode.result.push(...matchingFilters.flatMap(f => f.result));
-    }
-  } else {
-    if (filters.length == 0 || matchingFilters.length > 0) {
-      if (fnode.node.binding) {
-        const binding = resolveBinding(path);
-        if (binding) fnode.result.push(binding.node);
       } else {
-        fnode.result.push(path.node);
+        fnode.result.push(binding.node);
       }
-      log.debug("MATCHES NODE", fnode);
-    }
+    } 
+  } else if (!fnode.node.child) {
+    fnode.result.push(path.node);
+  } else if (matchingFilters.length > 0) {
+    log.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
+    fnode.result.push(...matchingFilters.flatMap(f => f.result));
   }
 }
 
