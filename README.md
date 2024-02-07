@@ -41,7 +41,7 @@ the object is bound to a parameter of the surrounding function, an return the as
 * `/:<name>` - find an attribute of the current node with the given name
 * `//:<name>` - find an attribute of the current node with the given name regardless of whether it's on the current node or on a descendant
 * `/$:<name>` - find the binding of an Identifier
-* `/$$:<name>` - return the binding or the attribute if bining cannot be resolved (helpful if a variable is sometimes directly assigned and sometimes not)
+* `/$$:<name>` - return the binding or the attribute if binding cannot be resolved (helpful if a variable is sometimes directly assigned and sometimes not)
 * `[]` - apply a filter to the node
 * `&&`, `||` - logical conditions of a filter
 * `==` - comparison in filter
@@ -52,8 +52,8 @@ the object is bound to a parameter of the surrounding function, an return the as
 
 ## API
 
-* `query(code: ParseResult<Babel.File> | string, query: string) : Result[]` - Runs the given query on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "script"`), and returns the result.
-* `multiQuery<T extends Record<string, string>>(code: ParseResult<Babel.File> | string, namedQueries: T) : Record<keyof T, Result[]>` - Runs the given set of named queries on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "script"`), and returns a map of named results (one result array per named query).
+* `query(code: ParseResult<Babel.File> | string, query: string) : Result[]` - Runs the given query on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "unambiguous"`), and returns the result.
+* `multiQuery<T extends Record<string, string>>(code: ParseResult<Babel.File> | string, namedQueries: T) : Record<keyof T, Result[]>` - Runs the given set of named queries on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "unambiguous"`), and returns a map of named results (one result array per named query).
 
 where `Result` is `Babel.Node | string | number | boolean;`
 
