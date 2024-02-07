@@ -337,7 +337,7 @@ export function query(code: ParseResult<Babel.File> | string, query: string) : R
 
 export function multiQuery<T extends Record<string, string>>(code: ParseResult<Babel.File> | string, namedQueries: T) : Record<keyof T, Result[]> {
   const start = Date.now();
-  const ast = typeof code == "string" ? parseSync(code, { sourceType: "script" }) : code;
+  const ast = typeof code == "string" ? parseSync(code, { sourceType: "unambiguous" }) : code;
   if (ast == null) throw new Error("Could not pase code");
   const queries = Object.fromEntries(Object.entries(namedQueries).map(([name, query]) => [name, parse(query)])) as Record<keyof T, QNode>;
   const result =  beginHandle(queries, ast);

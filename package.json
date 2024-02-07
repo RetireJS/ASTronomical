@@ -1,17 +1,20 @@
 {
   "name": "babel-q",
-  "version": "1.0.0-beta.4",
-  "description": "",
-  "main": "lib/index.js",
+  "version": "1.0.0-beta.5",
+  "description": "offers a way to query an babel AST to find specific patterns using a syntax somewhat similar to XPath.",
   "scripts": {
     "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "clean": "rm -rf lib && mkdir lib",
+    "build": "npm run clean && npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc -p ./tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs",
+    "build:cjs": "tsc -p ./tsconfig.cjs.json",
     "watch": "tsc --watch",
     "check": "npm run lint && npm run typecheck",
     "dev": "tsc --watch",
     "testWatch": "jest --watchAll",
-    "test": "jest --ci"
+    "test": "jest --ci",
+    "prepack": "npm run build"
   },
   "repository": {
 		"type": "git",
@@ -36,5 +39,22 @@
     "@babel/core": "^7.23.7",
     "@babel/parser": "^7.23.6",
     "@babel/traverse": "^7.23.7"
-  }
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./lib/esm/types/index.d.ts",
+        "default": "./lib/esm/index.mjs"
+      },
+      "require": {
+        "types": "./lib/cjs/types/index.d.ts",
+        "default": "./lib/cjs/index.js"
+      }
+    }
+  },
+  "types": "./lib/cjs/types/index.d.ts",
+  "main": "./lib/cjs/index.js"
 }

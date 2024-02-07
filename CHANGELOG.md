@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta.5] - 2024-02-06
+
+## Changes
+
+* Modernizing build output
+
 ## [1.0.0-beta.4] - 2024-02-06
 
 ## Bugfix
