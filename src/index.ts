@@ -1,7 +1,7 @@
 import traverse, { NodePath } from "@babel/traverse";
 import * as Babel from "@babel/types";
 import { parseSync } from "@babel/core";
-import { parse, QNode } from "./parseQuery";
+import { FunctionCall, parse, QNode } from "./parseQuery";
 import { ParseResult } from "@babel/parser";
 import { isIdentifier } from "@babel/types";
 
@@ -11,6 +11,48 @@ const log = {
   debug: (...args: unknown[]) => {
     if (debugLogEnabled) console.debug(...args);
   }
+}
+
+export const functions = {
+  "join": {
+    fn: (result: Result[][]): Result[] =>{
+      if (result.length != 2) throw new Error("Invalid number of arugments for join");
+      const [values, separators] = result;
+      if (separators.length != 1) throw new Error("Invalid number of separators for join");
+      const separator = separators[0];
+      if (typeof separator != "string") throw new Error("Separator must be a string");
+      if (values.length == 0) return [];
+      return [values.join(separator as string)];
+    }
+  },
+  "concat": {
+    fn: (result: Result[][]): Result[] => {
+      if (result.some(x => x.length == 0)) return [];
+      return [result.flat().join("")];
+    }
+  },
+  "first": {
+    fn: (result: Result[][]): Result[] => {
+      if (result.length != 1) throw new Error("Invalid number of arugments for first");
+      if (result[0].length == 0) return [];
+      return [result.map(r => r[0])[0]];
+    }
+  },
+  "nthchild" : {
+    fn: (result: Result[][]): Result[] => {
+      if (result.length != 2) throw new Error("Invalid number of arguments for nthchild");
+      if (result[1].length != 1) throw new Error("Invalid number of arguments for nthchild");
+      const x = result[1][0];
+      const number = typeof x == "number" ? x : parseInt(x as string);
+      return [result[0][number]];
+    }
+  }
+
+}
+const functionNames = Object.keys(functions);
+export type AvailableFunction = keyof typeof functions;
+export function isAvailableFunction(name: string) : name is AvailableFunction {
+  return functionNames.includes(name);
 }
 
 function beginHandle<T extends Record<string, QNode>>(queries: T, path: ParseResult<Babel.File>) : Record<keyof T, Result[]> {
@@ -39,6 +81,7 @@ type State = {
   descendant: FNode[][];
   filters: FilterResult[][];
   matches: [FNode, NodePath<Babel.Node>][][];
+  functionCalls: FunctionCallResult[][];
 }
 type FilterCondition = {
   type: "and" | "or" | "equals";
@@ -51,6 +94,12 @@ type FilterResult = {
   qNode: QNode;
   filter: FilterNode;
   node: Babel.Node;
+  result: Array<Result>;
+}
+type FunctionCallResult = {
+  node: QNode;
+  functionCall: FunctionCall;
+  parameters: (FNode | FunctionCallResult)[];
   result: Array<Result>;
 }
 
@@ -136,15 +185,42 @@ function addIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State)
     const filteredResult: Array<Result> = [];
     state.filters[state.depth].push({ filter: filter, qNode: fnode.node, node: path.node, result: filteredResult });
     addFilterChildrenToState(filter, state);
-    if (fnode.node.child) {
-      createFNodeAndAddToState(fnode.node.child, filteredResult, state); 
+    const child = fnode.node.child;
+    if (child) {
+      if (child.type == "function") {
+        const fr = addFunction(fnode, child, path, state);
+        state.functionCalls[state.depth].push(fr);
+      } else {
+        createFNodeAndAddToState(child, filteredResult, state); 
+      }
     }
   } else {
-    if (fnode.node.child && !fnode.node.binding && !fnode.node.resolve) {
-      createFNodeAndAddToState(fnode.node.child, fnode.result, state); 
+    const child = fnode.node.child;
+    if (child?.type == "function") {
+      const fr = addFunction(fnode, child, path, state);
+      state.functionCalls[state.depth].push(fr);
+    } else if (child && !fnode.node.binding && !fnode.node.resolve) {
+      createFNodeAndAddToState(child, fnode.result, state); 
     }  
   }
 }
+
+function addFunction(rootNode: FNode, functionCall: FunctionCall, path: NodePath<Babel.Node>, state: State): FunctionCallResult {
+  const functionNode: FunctionCallResult = { node: rootNode.node, functionCall: functionCall, parameters: [], result: [] };
+  for (const param of functionCall.parameters) {
+    if (param.type == "literal") {
+      functionNode.parameters.push({ node: param, result: [param.value] });
+    } else {
+      if (param.type == "function") {
+        functionNode.parameters.push(addFunction(functionNode, param, path, state));
+      } else {
+        functionNode.parameters.push(createFNodeAndAddToState(param, [], state));
+      }
+    }
+  }
+  return functionNode;
+}
+
 
 function isPrimitive(value: unknown) : boolean {
   return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
@@ -275,11 +351,31 @@ function addResultIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: 
     } 
   } else if (!fnode.node.child) {
     fnode.result.push(path.node);
+  } else if (fnode.node.child.type == "function") {
+    const functionCallResult = state.functionCalls[state.depth].find(f => f.node == fnode.node);
+    if (!functionCallResult) throw new Error("Did not find expected function call for " + fnode.node.child.function);
+    resolveFunctionCalls(fnode, functionCallResult, path, state);
   } else if (matchingFilters.length > 0) {
     log.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
     fnode.result.push(...matchingFilters.flatMap(f => f.result));
-  }
+  } 
 }
+
+function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath<Babel.Node>, state: State) {
+  const parameterResults: Result[][] = [];
+  for (const p of functionCallResult.parameters) {
+    if ("parameters" in p) {
+      resolveFunctionCalls(p, p, path, state);
+      parameterResults.push(p.result);
+    } else {
+      parameterResults.push(p.result);
+    }
+  }
+  const functionResult = functions[functionCallResult.functionCall.function].fn(parameterResults);
+  log.debug("PARAMETER RESULTS", functionCallResult.functionCall.function, parameterResults, functionResult);
+  fnode.result.push(...functionResult);
+}
+
 
 function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<Babel.Node>) : Record<keyof T, Result[]> {
   const results = Object.fromEntries(Object.keys(queries).map(name => [name, [] as Result[]])) as Record<keyof T, Result[]>;
@@ -288,7 +384,8 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
     child: [[],[]],
     descendant: [[],[]],
     filters: [[],[]],
-    matches: [[]]
+    matches: [[]],
+    functionCalls: [[]]
   };
   Object.entries(queries).forEach(([name, node]) => {
     createFNodeAndAddToState(node, results[name], state);
@@ -304,6 +401,7 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
       state.descendant.push([]);
       state.filters.push([]);
       state.matches.push([]);
+      state.functionCalls.push([]);
       state.child[state.depth].forEach(fnode => addIfTokenMatch(fnode, path, state));
       state.descendant.slice(0, state.depth+1).forEach(fnodes => 
         fnodes.forEach(fnode => addIfTokenMatch(fnode, path, state))
@@ -323,6 +421,7 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
       state.descendant.pop();
       state.filters.pop();
       state.matches.pop();
+      state.functionCalls.pop();
     }
   }, root.scope, state, root);
   return results;

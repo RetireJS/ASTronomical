@@ -1,6 +1,7 @@
-import { tokenize, parse, Condition } from '../src/parseQuery';
+import { tokenize, parse, Condition, FunctionCall } from '../src/parseQuery';
 
 describe('tokenization', () => {
+  
   test('single descendant', () => {
     const tokens = tokenize("//abc");
     expect(tokens.length).toEqual(2);
@@ -246,5 +247,30 @@ describe('testing index file', () => {
     const node = parse(`//AssignmentExpression/$$:right/:value`);
     expect(node).toMatchObject({ type: "descendant", value: "AssignmentExpression" });
     expect(node?.child).toMatchObject({ type: "child", resolve: true });
+  });
+  
+  test('invoke joining of values function', () => {
+    const node = parse('//ObjectExpression/:properties/fn:join(/:value, ".")');
+    expect(node).toMatchObject({ type: "descendant", value: "ObjectExpression" });
+    expect(node?.child).toMatchObject({ type: "child", attribute: true, value: "properties" });
+    expect(node?.child?.child).toMatchObject({ type: "function", function: "join" });
+    const fn = node?.child?.child as FunctionCall;
+    expect(fn.parameters[0]).toMatchObject({ type: "child", value: "value" });
+    expect(fn.parameters[1]).toMatchObject({ type: "literal", value: "." });
+  });
+
+  test('function in function', () => {
+    const node = parse("//ObjectExpression/fn:concat(/fn:first(/:properties/:value/:value), 'ms')");
+    expect(node).toMatchObject({ type: "descendant", value: "ObjectExpression" });
+    expect(node?.child).toMatchObject({ type: "function", function: "concat" });
+    const fn = node?.child as FunctionCall;
+    expect(fn.parameters[0]).toMatchObject({ type: "function", function: "first" });
+    expect(fn.parameters[1]).toMatchObject({ type: "literal", value: "ms" });
+    const fn2 = fn.parameters[0] as FunctionCall;
+    expect(fn2.parameters[0]).toMatchObject({ type: "child", value: "properties" });
+  });
+  test('should parse', () => {
+    const node = parse(`//ObjectExpression/fn:join(/:value/:value, ".")`);
+    expect(node).toMatchObject({ type: "descendant", value: "ObjectExpression" });
   })
 });

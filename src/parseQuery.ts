@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { AvailableFunction, isAvailableFunction } from ".";
 
 const debugLogEnabled = false;
 
@@ -36,6 +37,10 @@ const whitespace = " \n\r\t";
 function isCharacter(c: string) : boolean {
   const charcode = c.charCodeAt(0);
   return (charcode >= 65 && charcode <= 90) || (charcode >= 97 && charcode <= 122);
+}
+function isInteger(c: string) : boolean {
+  const charcode = c.charCodeAt(0);
+  return (charcode >= 48 && charcode <= 57);
 }
 
 export function tokenize(input: string) : Token[] {
@@ -79,6 +84,26 @@ export function tokenize(input: string) : Token[] {
       s++;
       continue;
     }
+    if (input[s] == ",") {
+      result.push({ type : "separator" });
+      s++;
+      continue;
+    }
+    if (input[s] == "(") {
+      result.push({ type : "parametersBegin" });
+      s++;
+      continue;
+    }
+    if (input[s] == "f" && input[s+1] == "n" && input[s+2] == ":") {
+      result.push({ type : "function" });
+      s += 3;
+      continue;
+    }
+    if (input[s] == ")") {
+      result.push({ type : "parametersEnd" });
+      s++;
+      continue;
+    }
     if (input[s] == "&" && input[s+1] == "&") {
       result.push({ type : "and" });
       s += 2;
@@ -119,6 +144,12 @@ export function tokenize(input: string) : Token[] {
       result.push({ type: "identifier", value: input.slice(start, s)});
       continue;
     }
+    if (isInteger(input[s])) {
+      const start = s;
+      while (s < input.length && isInteger(input[s])) s++;
+      result.push({ type: "literal", value: input.slice(start, s)});
+      continue;
+    }
     throw new Error("Unexpected token: " + input[s]);
   }
   return result;
@@ -153,7 +184,13 @@ export type Literal = BaseNode & {
   value: string;
 }
 
-export type QNode = Selector | Condition | Literal;
+export type FunctionCall = BaseNode & {
+  type: "function";
+  function: AvailableFunction;
+  parameters: QNode[];
+}
+
+export type QNode = Selector | Condition | Literal | FunctionCall ;
 
 
 function buildFilter(tokens: Token[]) : Condition | QNode {
@@ -202,6 +239,8 @@ function buildFilter(tokens: Token[]) : Condition | QNode {
   throw new Error("Unexpected token in filter: " + next?.type);
 }
 
+
+
 const subNodes = ["child", "descendant"];
 
 function buildTree(tokens: Token[]) : QNode {
@@ -217,6 +256,16 @@ function buildTree(tokens: Token[]) : QNode {
   }
   if (subNodes.includes(token.type)) {
     let next = tokens.shift();
+    if (next?.type == "function") {
+      const name = tokens.shift();
+      if (name == undefined || name.type != "identifier" || name.value == undefined || typeof(name.value) != "string") throw new Error("Unexpected token: " + name?.type + ". Expecting function name");
+      const value = name.value;
+      if (!isAvailableFunction(value)) {
+        throw new Error("Unsupported function: " + name.value);
+      }
+      return buildFunctionCall(value, tokens);
+    }
+
     if (next?.type == "parent") {
       return { type: "parent", child: buildTree(tokens) };
     }
@@ -240,6 +289,7 @@ function buildTree(tokens: Token[]) : QNode {
     if (tokens.length > 0 && subNodes.includes(tokens[0].type)) {
       child = buildTree(tokens);
     }
+    if (typeof(identifer) != "string") throw new Error("Identifier must be a string");
     return {
       type: token.type as "child" | "descendant",
       value: identifer,
@@ -257,6 +307,24 @@ function buildTree(tokens: Token[]) : QNode {
     }
   }
   throw new Error("Unexpected token: " + token.type);
+}
+
+function buildFunctionCall(name: AvailableFunction, tokens: Token[]) : QNode {
+  log.debug("BUILD FUNCTION", name, tokens);
+  const parameters: QNode[] = [];
+  const next = tokens.shift();
+  if (next?.type != "parametersBegin") throw new Error("Unexpected token: " + next?.type);
+  while (tokens.length > 0 && tokens[0].type != "parametersEnd") {
+    parameters.push(buildTree(tokens));
+    if (tokens[0].type == "separator") tokens.shift();
+  }
+  if (tokens.length == 0) throw new Error("Unexpected end of input");
+  tokens.shift();
+  return {
+    type: "function",
+    function: name,
+    parameters: parameters
+  }
 }
 
 export function parse(input: string): QNode {

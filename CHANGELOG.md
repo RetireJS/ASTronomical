@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta6] - 2024-02-06
+
+## Added
+
+* Support for function `/fn:join(data, sep)`, `/fn:first(data)`, `/fn:concat(...)` and `/fn:nthchild(selector, n)`
+
 ## [1.0.0-beta.5] - 2024-02-06
 
 ## Changes

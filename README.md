@@ -49,6 +49,9 @@ the object is bound to a parameter of the surrounding function, an return the as
 * `/*` - wildcard type child
 * `//*` - wildcard type descendant
 * `'<some value>'`,`"<some value>"` - a string literal 
+* `/fn:first(selector)` - returns the first result from all matches
+* `/fn:concat(...selectors...)` - concatenates results. If an argument has more than one value, those will be concatenated first.
+* `/fn:join(selector, ",")` - concatenates the results of a selector with the given separator
 
 ## API
 

@@ -17,6 +17,6 @@
     "outDir": "./lib/esm",
     "declarationDir": "./lib/esm/types"
 	},
-	"include": ["src"],
+	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "**/__tests__/*"]
 }

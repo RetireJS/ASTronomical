@@ -14,7 +14,6 @@ describe('testing index file', () => {
 
   const ast = babel.parseSync(code);
   test('dummy', () => {})
-
   
   test('Find FunctionExpression', () => {
     const nodes = query(ast!, "/FunctionDeclaration");
@@ -200,5 +199,53 @@ describe('testing index file', () => {
     const ast = babel.parseSync(code);
     const nodes = query(ast!, "//AssignmentExpression/$$:right/:value");
     expect(nodes).toEqual([2, 3]);
-  })
+  });
+  test("should join values", () => {
+    const code = "var a = { b: 1, c: 2 }";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, "//ObjectExpression/fn:join(/:properties/:value/:value, '.')");
+    expect(nodes).toEqual(["1.2"]);
+  });
+  test("should find first", () => {
+    const code = "var a = { b: 1, c: 2 }";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, "//ObjectExpression/fn:first(/:properties/:value/:value)");
+    expect(nodes).toEqual([1]);
+  });
+  test("should concat values", () => {
+    const code = "var a = { b: 1, c: 2 }";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, "//ObjectExpression/fn:concat(/:properties/:value/:value, 'ms')");
+    expect(nodes).toEqual(["12ms"]);
+  });
+  
+  test("should call function in function values", () => {
+    const code = "var a = { b: 1, c: 2 }";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, "//ObjectExpression/fn:concat(/fn:first(/:properties/:value/:value), 'ms')");
+    expect(nodes).toEqual(["1ms"]);
+  });
+  test("should be able to filter", () => {
+    const code = "var a = { b: 1, c: 2 }; var d = { x: 27}";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, `//ObjectExpression[//:name == 'x']/fn:concat(/:properties/:value/:value, 'ms')`);
+    console.log(nodes);
+    expect(nodes.length).toEqual(1);
+  });
+  test("should pick nth child", () => {
+    const code = "var a = { b: 1, c: 2 }";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, `//ObjectExpression/fn:nthchild(/:properties/:value/:value, 1)`);
+    console.log(nodes);
+    expect(nodes.length).toEqual(1);
+    expect(nodes[0]).toEqual(2);
+  });
+  test("should pick nth child by key", () => {
+    const code = "var a = { b: 1, c: 2 }";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, `//ObjectExpression/:1/:value/:value`);
+    console.log(nodes);
+    expect(nodes.length).toEqual(1);
+    expect(nodes[0]).toEqual(2);
+  });
 });
