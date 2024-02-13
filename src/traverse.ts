@@ -117,7 +117,7 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
 function registerBinding(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scope: Scope) {
   if (t.isBinding(node, parentNode, grandParentNode) && !t.isMemberExpression(node)) {
     if (t.isIdentifier(node) && !t.isAssignmentExpression(parentNode)) {
-      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode)) {
+      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScopable(parentNode)) {
         //console.log("I am a function", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
         scope.setBinding(node.name, { path: createNodePath(node, undefined, undefined, scope) });
       } else {
@@ -142,7 +142,7 @@ function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentN
   let childScope = scope;
   //if (scopeStarting.includes(node.type)){
   //if (t.isScope(node, parentNode)) {
-  if (t.isScopable(node)) {
+  if (t.isScope(node, parentNode) || t.isExportSpecifier(node)) {
      //if (depth > 1) return;
     childScope = createScope(scope);
     depth++;
