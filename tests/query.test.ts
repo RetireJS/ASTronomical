@@ -261,4 +261,13 @@ describe('testing index file', () => {
     expect(nodes[0]).toEqual(2);
   });
   
+  test("object expression selection", () => {
+    const code = "let k = 32; var a = { b: 1, c: 2 }; var d = { b: k, e: 3}";
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, `//ObjectExpression[
+        /ObjectProperty/:key/:name == 'e'
+      ]/ObjectProperty[/:key/:name == 'b']/$:value/:init/:value`);
+    expect(nodes).toEqual([32]);
+  })
+  
 });
