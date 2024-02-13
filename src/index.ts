@@ -1,4 +1,4 @@
-import traverse, { NodePath } from "@babel/traverse";
+import traverse, { NodePath } from "./traverse";
 import * as Babel from "@babel/types";
 import { parseSync } from "@babel/core";
 import { FunctionCall, parse, QNode } from "./parseQuery";
@@ -9,7 +9,7 @@ const debugLogEnabled = false;
 
 const log = {
   debug: (...args: unknown[]) => {
-    if (debugLogEnabled) console.debug(...args);
+    if (debugLogEnabled) console.debug(...args.map( x => typeof(x) == "object" && x != null ? x.toString() : x ));
   }
 }
 
@@ -58,12 +58,15 @@ export function isAvailableFunction(name: string) : name is AvailableFunction {
 function beginHandle<T extends Record<string, QNode>>(queries: T, path: ParseResult<Babel.File>) : Record<keyof T, Result[]> {
   let rootPath: NodePath<Babel.Node> | undefined = undefined;
   traverse(path, { 
-    Program(path) {
-      rootPath = path;
-      path.stop();
+    enter(path) {
+      if (path.node.type == "Program") {
+        rootPath = path;
+        path.stop();
+      }
     }
-  });
+  }, undefined, {});
   if (rootPath == undefined) throw new Error("No root path found");
+  log.debug("Found rootNode");
   return travHandle(queries, rootPath);
 }
 
@@ -105,7 +108,7 @@ type FunctionCallResult = {
 
 function breadCrumb(path: NodePath<Babel.Node>) {
   return { //Using the toString trick here to avoid calculating the breadcrumb if debug logging is off
-    toString(): string {
+    toString() : string {
       if (path.parentPath == undefined) return "@" + path.node.type;
       return breadCrumb(path.parentPath) + "." + (path.parentKey == path.key ? path.key : path.parentKey + "[" + path.key + "]") + "@" + path.node.type;
     }
@@ -166,14 +169,14 @@ function createFNodeAndAddToState(token: QNode, result: Array<Result>, state: St
 function isMatch(fnode: FNode, path: NodePath<Babel.Node>) : boolean {
   if (fnode.node.attribute) {
     const m = fnode.node.value == path.parentKey || fnode.node.value == path.key
-    //if (m) log.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
+    if (m) log.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
     return m;
   }
   if (fnode.node.value == "*") {
     return true;
   }
   const m = fnode.node.value == path.node.type
-  //if (m) log.debug("NODE MATCH", fnode.node.value, breadCrumb(path));
+  if (m) log.debug("NODE MATCH", fnode.node.value, breadCrumb(path));
   return m;
 }
 

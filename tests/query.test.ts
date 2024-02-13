@@ -45,13 +45,15 @@ describe('testing index file', () => {
     const identifier = nodes[0] as t.Identifier;
     expect(identifier.name).toEqual("a");
   });
-  
+
+
   test('Find identifiers below FunctionExpression', () => {
     const nodes = query(ast!, "/FunctionDeclaration/:params/:name");
     expect(nodes.length).toEqual(1);
     expect(nodes[0]).toEqual("x");
   });
-  
+    
+
   
   test('Find named FunctionExpression', () => {
     const nodes = query(ast!, '/FunctionDeclaration[/:id/:name == "a"]');
@@ -117,6 +119,7 @@ describe('testing index file', () => {
   
   
 
+
   test("find assigment to parameter", () => {
     const nodes = query(ast!, "//FunctionDeclaration[/:params/:name == //AssignmentExpression/:left/:object/:name]");
     //const nodes = query(ast!, "//FunctionDeclaration//AssignmentExpression/:left/:object/:name");
@@ -158,29 +161,38 @@ describe('testing index file', () => {
     ]/:right/:value`);
     expect(nodes).toEqual([25]);
   });
+  
   test("Should work with wildcards", () => {
     const nodes = query(ast!, `//FunctionDeclaration//AssignmentExpression/*
     /Identifier/:name`);
     expect(nodes).toEqual(['x', 'y']);
-  })
+  });
+  
   test("should find assigment property of object bound to function parameter", () => {
     const nodes = query(ast!, `//FunctionDeclaration//AssignmentExpression[
       /:left/$:object == ../../../:params 
     ]/:right/:value`);
     expect(nodes).toEqual([25]);
   });
+
+  
   test("should return binding", () => {
     const nodes = query(ast!, `//FunctionDeclaration//AssignmentExpression/:left/$:object`);
     expect(nodes[0]).toMatchObject({name: "x"});
   });
+
   test("should return binding value", () => {
     const nodes = query(ast!, `//FunctionDeclaration//AssignmentExpression/$:right/:init/:value`);
     expect(nodes).toEqual([3]);
   });
+  
   test("should return named binding value", () => {
     const nodes = query(ast!, `//FunctionDeclaration//AssignmentExpression[/:left/:name == 'b']/$:right/:init/:value`);
     expect(nodes).toEqual([3]);
   });
+
+  
+  
   test("should NOT find assigment property of object bound to function parameter", () => {
     const nodes = query(ast!, `//FunctionDeclaration//AssignmentExpression[
       /:left/$:property == ../../../:params 
@@ -248,4 +260,5 @@ describe('testing index file', () => {
     expect(nodes.length).toEqual(1);
     expect(nodes[0]).toEqual(2);
   });
+  
 });
