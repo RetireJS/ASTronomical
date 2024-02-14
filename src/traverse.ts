@@ -2,6 +2,13 @@
 import * as Babel from "@babel/types";
 import * as t from '@babel/types';
 
+const debugLogEnabled = false;
+
+const log = {
+  debug: (...args: unknown[]) => {
+    if (debugLogEnabled) console.debug(...args);
+  }
+}
 export type Binding = {
   path: NodePath<Babel.Node>;
 }
@@ -11,15 +18,12 @@ export type Scope = {
   parentScope?: Scope;
   id: number;
 };
+
 let scopeId = 0;
+
 function createScope(parentScope?: Scope) {
   const id = scopeId++;
   const bindings: Record<string, Binding> = {};
-  /*if (parentScope) {
-    for (const [key, value] of parentScope.bindings.entries()) {
-      bindings.set(key, value);
-    }
-  }*/
   return {
     bindings,
     id,
@@ -39,6 +43,7 @@ function setBinding(scope: Scope, name: string, binding: Binding) {
 }
 
 
+const voidFn = () => {};
 
 export type NodePath<T> = {
   node: T;
@@ -48,7 +53,7 @@ export type NodePath<T> = {
   stop: () => void;
   get(key: string): NodePath<Babel.Node>[];
   scope: Scope,
-  shouldStop: { shouldStop: boolean };
+  shouldStop: boolean;
 };
 
 type Visitor<T> = {
@@ -66,12 +71,11 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
   }
   const finalScope: Scope = ((node.extra && node.extra["scope"]) ? node.extra["scope"] as Scope : scope) ?? createScope();
   
-  const flagHolder = { shouldStop: false };
   const path = {
       node,
       scope: finalScope,
-      shouldStop: flagHolder,
-      stop: () => { flagHolder.shouldStop = true; },
+      shouldStop: false,
+      stop: voidFn,
       get: (key: string) => {
         if (key in node) {
           const r = (node as unknown as Record<string, unknown>)[key];
@@ -87,49 +91,24 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
       key,
       parentKey
     }
-    //console.log("Creating path", node);
-    /*if (typeof node == "object" && node != null) {
-      node.extra = node.extra ?? {};
-      node.extra["babel-q-path"] = path;
-    }*/
+    path.stop = () => { path.shouldStop = true; };
     return path;
 }
 
 
-/*function registerBinding(nodePath: NodePath<Babel.Node>) {
-  const node = nodePath.node;
-  if (nodePath.parentPath && t.isBinding(node, nodePath.parentPath!.node, nodePath.parentPath!.parentPath?.node) && !t.isMemberExpression(node)) {
-    if (t.isIdentifier(node) && !t.isAssignmentExpression(nodePath.parentPath?.node)) {
-      if (t.isFunctionDeclaration(nodePath.parentPath?.node) || t.isFunctionExpression(nodePath.parentPath?.node)) {
-        //console.log("I am a function", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
-        nodePath.scope.setBinding(node.name, { path: nodePath });
-      } else {
-        //console.log("I am a bingind", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
-        nodePath.scope.setBinding(node.name, { path: nodePath.parentPath });            
-      }
-    }
-  }
-}*/
-
 function registerBinding(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scope: Scope) {
   if (t.isBinding(node, parentNode, grandParentNode) && !t.isMemberExpression(node)) {
     if (t.isIdentifier(node) && !t.isAssignmentExpression(parentNode)) {
-      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScope(node, parentNode)) {
-        //console.log("I am a function", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
+      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScope(node, parentNode)) {  
         setBinding(scope, node.name, { path: createNodePath(node, undefined, undefined, scope) });
       } else {
-        /*if (node.name == "me") {
-          console.log("I am a binging", node.name, nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
-        }*/
-        //console.log("I am a bingind", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
         setBinding(scope, node.name, { path: createNodePath(parentNode, undefined, undefined, scope) });            
       }
     }
   }
 }
-//const scopeStarting = [ "BlockStatement", "FunctionExpression", "ArrowFunctionExpression"];
 
-function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scope: Scope, depth: number = 0) {
+function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scope: Scope) {
   if (typeof node == "object" && node != null) {
     node.extra = node.extra ?? {};
     if (node.extra["scope"]) return;
@@ -137,35 +116,26 @@ function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentN
   }
   const keys = t.VISITOR_KEYS[node.type];
   let childScope = scope;
-  //if (scopeStarting.includes(node.type)){
-  //if (t.isScope(node, parentNode)) {
   if (t.isScope(node, parentNode) || t.isExportSpecifier(node)) {
-     //if (depth > 1) return;
     childScope = createScope(scope);
-    depth++;
   }
 
   for (const key of keys) {
     const childNodes = node[key as keyof Babel.Node];
     const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
-    /*const nodePaths = children.map((child, i) => {
-      if (!(child && typeof child === "object")) return undefined
-      return createNodePath(
-        child as unknown as Babel.Node, 
-        Array.isArray(childNodes) ? i.toString() : key, 
-        key, 
-        childScope, 
-        nodePath
-      );
-    }).filter(x => x != undefined) as NodePath<Babel.Node>[];*/
-    children.map((child) => {
-      if (!(child && typeof child === "object")) return undefined
-      // @ts-ignore
-      registerBinding(child as Babel.Node, node, parentNode, childScope);
-      // @ts-ignore
-      registerBindings(child as Babel.Node, node, parentNode, childScope, depth);
-    });    
+    children.forEach((child) => {
+      if (isNode(child)) {
+        registerBinding(child, node, parentNode, childScope);
+        registerBindings(child, node, parentNode, childScope);
+      }
+    });
+
   }
+}
+
+function isNode(candidate: unknown): candidate is Babel.Node {
+  //return typeof candidate === "object" && candidate != null && "type" in candidate;
+  return t.isNode(candidate);
 }
 
 function traverseInner<T>(
@@ -177,13 +147,6 @@ function traverseInner<T>(
   ) {
     const nodePath = path ?? createNodePath(node, undefined, undefined, scope);
     const keys = t.VISITOR_KEYS[node.type];
-
-
-    /*if (t.isIdentifier(node)) {
-      if (nodePath.parentPath) {
-        console.log(node, nodePath.node.type, nodePath.parentPath.node.type, nodePath.key, nodePath.parentKey, t.isBinding(node));
-      }
-    }*/
     
     if (nodePath.parentPath) registerBindings(nodePath.node, nodePath.parentPath.node, nodePath.parentPath.parentPath?.node, nodePath.scope);
     
@@ -191,25 +154,24 @@ function traverseInner<T>(
       const childNodes = node[key as keyof Babel.Node];
       const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
       const nodePaths = children.map((child, i) => {
-        if (!(child && typeof child === "object")) return undefined;
-        // @ts-ignore
-        return createNodePath(child as Babel.Node, key, Array.isArray(childNodes) ? i.toString() : key, nodePath.scope, nodePath);
+        if (isNode(child)) {
+          return createNodePath(child, key, Array.isArray(childNodes) ? i.toString() : key, nodePath.scope, nodePath);
+        }
+        return undefined;
       }).filter(x => x != undefined) as NodePath<Babel.Node>[];
       nodePaths.forEach((childPath) => {
         visitor.enter(childPath, state);
-        if (childPath.shouldStop.shouldStop) {
-          childPath.shouldStop.shouldStop = false;
-          nodePath.stop();
+        if (childPath.shouldStop) {
+          childPath.shouldStop = false;
+          nodePath.shouldStop = true;
           return;
         }      
         traverseInner(childPath.node, visitor, nodePath.scope, state, childPath);
         if (visitor.exit) visitor.exit(childPath, state);
-        /*if (Object.keys(nodePath.scope.bindings).length == 0 && nodePath.node.extra) {
-          nodePath.node.extra["scope"] = undefined;
-        }*/
-        if (childPath.shouldStop.shouldStop) {
-          childPath.shouldStop.shouldStop = false;
-          nodePath.stop();
+
+        if (childPath.shouldStop) {
+          childPath.shouldStop = false;
+          nodePath.shouldStop = true;
           return;
         }      
       });
@@ -224,7 +186,7 @@ export default function traverse<T>(  node: Babel.Node,
   path?: NodePath<Babel.Node>) {
   traverseInner(node, visitor, scope, state, path);
   if (!sOut.includes(scopeId)) {
-    console.log("Scopes created", scopeId);
+    log.debug("Scopes created", scopeId);
     sOut.push(scopeId);
   }
   

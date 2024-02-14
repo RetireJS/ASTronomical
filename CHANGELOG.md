@@ -1,26 +1,32 @@
 # Changelog
 
+## [1.0.0-beta7] - 2024-02-06
+
+### Changed
+
+* Speed improvement - switch out babel.traverse with optimized traversal
+
 ## [1.0.0-beta6] - 2024-02-06
 
-## Added
+### Added
 
 * Support for function `/fn:join(data, sep)`, `/fn:first(data)`, `/fn:concat(...)` and `/fn:nthchild(selector, n)`
 
 ## [1.0.0-beta.5] - 2024-02-06
 
-## Changes
+### Changes
 
 * Modernizing build output
 
 ## [1.0.0-beta.4] - 2024-02-06
 
-## Bugfix
+### Bugfix
 
 * Fix bug in resolve `$$`
 
 ## [1.0.0-beta.3] - 2024-02-06
 
-## Added
+### Added
 
 * Support for `$$` which will resolve to the right value for x in both `a.x = 2` and `let y = 1; a.x = y;`
 

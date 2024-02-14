@@ -9,7 +9,7 @@ const debugLogEnabled = false;
 
 const log = {
   debug: (...args: unknown[]) => {
-    if (debugLogEnabled) console.debug(...args.map( x => typeof(x) == "object" && x != null ? x.toString() : x ));
+    if (debugLogEnabled) console.debug(...args.map( x => typeof(x) == "object" && x != null && "valueOf" in x ? x.valueOf() : x ));
   }
 }
 
@@ -108,7 +108,7 @@ type FunctionCallResult = {
 
 function breadCrumb(path: NodePath<Babel.Node>) {
   return { //Using the toString trick here to avoid calculating the breadcrumb if debug logging is off
-    toString() : string {
+    valueOf() : string {
       if (path.parentPath == undefined) return "@" + path.node.type;
       return breadCrumb(path.parentPath) + "." + (path.parentKey == path.key ? path.key : path.parentKey + "[" + path.key + "]") + "@" + path.node.type;
     }
@@ -440,7 +440,14 @@ export function query(code: ParseResult<Babel.File> | string, query: string) : R
 
 export function multiQuery<T extends Record<string, string>>(code: ParseResult<Babel.File> | string, namedQueries: T) : Record<keyof T, Result[]> {
   const start = Date.now();
-  const ast = typeof code == "string" ? parseSync(code, { sourceType: "unambiguous" }) : code;
+  const ast = typeof code == "string" ? parseSync(code, { 
+    sourceType: "unambiguous",
+    parserOpts: {
+      attachComment: false,
+      ranges: false,
+      tokens: false,
+    }
+  }) : code;
   if (ast == null) throw new Error("Could not pase code");
   const queries = Object.fromEntries(Object.entries(namedQueries).map(([name, query]) => [name, parse(query)])) as Record<keyof T, QNode>;
   const result =  beginHandle(queries, ast);
