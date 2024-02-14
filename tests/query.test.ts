@@ -281,6 +281,19 @@ describe('testing index file', () => {
     const nodes1 = query(ast!, "//MemberExpression/$:object");
     const nodes2 = query(ast!, "//FunctionDeclaration//FunctionDeclaration/:id");
     expect(nodes1).toEqual(nodes2);
+  });
+  test("find correct binding when exported", () => {
+    const code = `
+    let a = 1;
+    let b = 2;
+    b = a;
+    export {
+      a
+    }`
+    const ast = babel.parseSync(code);
+    const nodes = query(ast!, "//AssignmentExpression/$:right/:init/:value");
+    console.log(nodes);
+    expect(nodes).toEqual([1]);
   })
 });
 

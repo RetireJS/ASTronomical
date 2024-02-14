@@ -99,6 +99,7 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
 function registerBinding(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scope: Scope) {
   if (t.isBinding(node, parentNode, grandParentNode) && !t.isMemberExpression(node)) {
     if (t.isIdentifier(node) && !t.isAssignmentExpression(parentNode)) {
+      //A bit of a hack here as well. Needs some further investigation
       if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScope(node, parentNode)) {  
         setBinding(scope, node.name, { path: createNodePath(node, undefined, undefined, scope) });
       } else {
@@ -117,7 +118,8 @@ function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentN
   const keys = t.VISITOR_KEYS[node.type];
 
   let childScope = scope;
-  if (t.isScopable(node)) {
+  // This is also buggy. Need to investigate what creates a new scope
+  if (t.isScopable(node) || t.isExportSpecifier(node)) {
     childScope = createScope(scope);
   }
   for (const key of keys) {
