@@ -7,13 +7,11 @@ export type Binding = {
 }
 
 export type Scope = {
-  getBinding(name: string): Binding | undefined;
-  setBinding(name: string, binding: Binding): void;
   bindings: Record<string, Binding>;
+  parentScope?: Scope;
   id: number;
 };
 let scopeId = 0;
-
 function createScope(parentScope?: Scope) {
   const id = scopeId++;
   const bindings: Record<string, Binding> = {};
@@ -24,24 +22,23 @@ function createScope(parentScope?: Scope) {
   }*/
   return {
     bindings,
-    getBinding(name: string) {
-      //console.log("Looking for binding:", id, parentScope?.id, name, bindings, parentScope?.bindings);
-      const s = bindings[name];
-      //if (name == "me") console.log(Array.from(bindings.keys()), s, parentScope?.bindings.get(name));
-      //console.log("I has a binding", s);
-      if (s) return s;
-      if (parentScope) {
-        return parentScope.getBinding(name);
-      }
-      return undefined;
-    },
-    setBinding(name: string, binding: Binding) {
-      bindings[name] = binding;
-      //console.log("Adding binding: ", id, parentScope?.id, name, Array.from(bindings.keys()), binding.path.node.type);
-    },
-    id
+    id,
+    parentScope
   }
 }
+export function getBinding(scope: Scope, name: string) {
+  const s = scope.bindings[name];
+  if (s) return s;
+  if (scope.parentScope) {
+    return getBinding(scope.parentScope, name);
+  }
+  return undefined;
+}
+function setBinding(scope: Scope, name: string, binding: Binding) {
+  scope.bindings[name] = binding;
+}
+
+
 
 export type NodePath<T> = {
   node: T;
@@ -117,15 +114,15 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
 function registerBinding(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scope: Scope) {
   if (t.isBinding(node, parentNode, grandParentNode) && !t.isMemberExpression(node)) {
     if (t.isIdentifier(node) && !t.isAssignmentExpression(parentNode)) {
-      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScopable(parentNode)) {
+      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScope(node, parentNode)) {
         //console.log("I am a function", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
-        scope.setBinding(node.name, { path: createNodePath(node, undefined, undefined, scope) });
+        setBinding(scope, node.name, { path: createNodePath(node, undefined, undefined, scope) });
       } else {
         /*if (node.name == "me") {
           console.log("I am a binging", node.name, nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
         }*/
         //console.log("I am a bingind", nodePath.node.type, nodePath.parentPath?.node.type, t.isIdentifier(node));
-        scope.setBinding(node.name, { path: createNodePath(parentNode, undefined, undefined, scope) });            
+        setBinding(scope, node.name, { path: createNodePath(parentNode, undefined, undefined, scope) });            
       }
     }
   }

@@ -1,4 +1,4 @@
-import traverse, { NodePath } from "./traverse";
+import traverse, { getBinding, NodePath } from "./traverse";
 import * as Babel from "@babel/types";
 import { parseSync } from "@babel/core";
 import { FunctionCall, parse, QNode } from "./parseQuery";
@@ -272,7 +272,8 @@ function resolveBinding(path: NodePath<Babel.Node>) : NodePath<Babel.Node> | und
   log.debug("RESOLVING BINDING FOR ", path.node);
   const name = path.node.name;
   if (name == undefined || typeof name != "string") return undefined;
-  const binding = path.scope.getBinding(name);
+  //const binding = path.scope.getBinding(name);
+  const binding = getBinding(path.scope, name);
   if (!binding) return undefined;
   log.debug("THIS IS THE BINDING", binding);
   return binding.path;
