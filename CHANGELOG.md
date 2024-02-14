@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta8] - 2024-02-06
+
+### Bugfix
+
+* Scoping issues for binding
+
 ## [1.0.0-beta7] - 2024-02-06
 
 ### Changed

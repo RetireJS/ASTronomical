@@ -270,4 +270,18 @@ describe('testing index file', () => {
     expect(nodes).toEqual([32]);
   })
   
+  test("find binding to function name", () => {
+    const code = `
+    function a(x) {
+      function b() {}
+      let k = 1;
+      b.c = k;
+    }`
+    const ast = babel.parseSync(code);
+    const nodes1 = query(ast!, "//MemberExpression/$:object");
+    const nodes2 = query(ast!, "//FunctionDeclaration//FunctionDeclaration/:id");
+    expect(nodes1).toEqual(nodes2);
+  })
 });
+
+

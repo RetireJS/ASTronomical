@@ -115,18 +115,21 @@ function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentN
     node.extra["scope"] = scope;
   }
   const keys = t.VISITOR_KEYS[node.type];
+
   let childScope = scope;
-  if (t.isScope(node, parentNode) || t.isExportSpecifier(node)) {
+  if (t.isScopable(node)) {
     childScope = createScope(scope);
   }
-
   for (const key of keys) {
     const childNodes = node[key as keyof Babel.Node];
     const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
     children.forEach((child) => {
       if (isNode(child)) {
-        registerBinding(child, node, parentNode, childScope);
-        registerBindings(child, node, parentNode, childScope);
+        // This feels like a hack. Need to figure out how to make this work 
+        // for other types of scopes as well (classes, etc.)
+        const s = key == "id" ? scope : childScope;
+        registerBinding(child, node, parentNode, s);
+        registerBindings(child, node, parentNode, s);
       }
     });
 
