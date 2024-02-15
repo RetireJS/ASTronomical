@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta10] - 2024-02-15
+
+### Bugfix
+
+* More speed and memory improvements
+
 ## [1.0.0-beta9] - 2024-02-14
 
 ### Bugfix
