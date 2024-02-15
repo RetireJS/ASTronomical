@@ -231,7 +231,6 @@ export default function traverse<T>(  node: Babel.Node,
   traverseInner(node, visitor, scopeId, state, path);
   if (!sOut.includes(scopeIdCounter)) {
     log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes);
-    console.log("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated);
     sOut.push(scopeIdCounter);
   }
 }
