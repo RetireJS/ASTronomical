@@ -273,7 +273,7 @@ function resolveBinding(path: NodePath<Babel.Node>) : NodePath<Babel.Node> | und
   const name = path.node.name;
   if (name == undefined || typeof name != "string") return undefined;
   //const binding = path.scope.getBinding(name);
-  const binding = getBinding(path.scope, name);
+  const binding = getBinding(path.scopeId, name);
   if (!binding) return undefined;
   log.debug("THIS IS THE BINDING", binding);
   return binding.path;
@@ -427,7 +427,7 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
       state.matches.pop();
       state.functionCalls.pop();
     }
-  }, root.scope, state, root);
+  }, root.scopeId, state, root);
   return results;
 }
 
