@@ -1,30 +1,30 @@
 # Changelog
 
-## [1.0.0-beta10] - 2024-02-15
+## [1.0.0-beta.10] - 2024-02-15
 
 ### Bugfix
 
 * More speed and memory improvements
 
-## [1.0.0-beta9] - 2024-02-14
+## [1.0.0-beta.9] - 2024-02-14
 
 ### Bugfix
 
 * More scoping issues for binding
 
-## [1.0.0-beta8] - 2024-02-14
+## [1.0.0-beta.8] - 2024-02-14
 
 ### Bugfix
 
 * Scoping issues for binding
 
-## [1.0.0-beta7] - 2024-02-06
+## [1.0.0-beta.7] - 2024-02-06
 
 ### Changed
 
 * Speed improvement - switch out babel.traverse with optimized traversal
 
-## [1.0.0-beta6] - 2024-02-06
+## [1.0.0-beta.6] - 2024-02-06
 
 ### Added
 
