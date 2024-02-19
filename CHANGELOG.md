@@ -12,6 +12,13 @@
 
 * More scoping issues for binding
 
+## [1.0.0-beta.12] - 2024-02-14
+
+### Performance
+
+* Replacing babel with meriyah
+
+
 ## [1.0.0-beta.8] - 2024-02-14
 
 ### Bugfix
