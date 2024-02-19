@@ -231,7 +231,7 @@ function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<ASTNode>) {
 }
 
 function evaluateFilter(filter: FilterNode, path: NodePath<ASTNode>) : Result[] {
-  log.debug("EVALUATING FILTER", filter);
+  log.debug("EVALUATING FILTER", filter, breadCrumb(path));
   if ("type" in filter) {
     if (filter.type == "and") {
       const left = evaluateFilter(filter.left, path);
@@ -294,12 +294,12 @@ function resolveDirectly(node: QNode, path: NodePath<ASTNode>) : Result[] {
   let startNode: QNode = node;
   const startPath = path;
   let paths = [startPath];
-  while(startNode.attribute) {
+  while(startNode.attribute && startNode.type == "child") {
     const lookup = startNode.value;
     if (!lookup) throw new Error("Selector must have a value");
     log.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
     const nodes = paths.map(n => n.get(lookup)).map(toArray).flat().filter(n => n.node != undefined);
-    log.debug("LOOKUP", lookup, nodes.map(n => n.node), nodes.filter(n => n.node == undefined));
+    log.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node), nodes.filter(n => n.node == undefined));
     if (nodes.length == 0) return [];
     paths = nodes;
     if (startNode.resolve) {
@@ -307,6 +307,10 @@ function resolveDirectly(node: QNode, path: NodePath<ASTNode>) : Result[] {
       if (resolved.length > 0) paths = resolved;
     } else if (startNode.binding) {
       paths = paths.map(p => resolveBinding(p)).filter(isDefined);
+    }
+    const filter = startNode.filter;
+    if (filter) {
+      paths = paths.filter(p => travHandle({subquery: filter}, p).subquery.length > 0);
     }
     if (!startNode.child) {
       return paths.map(p => p.node);
@@ -330,6 +334,7 @@ function addResultIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: Sta
 
   if (fnode.node.resolve) {
     const [resolved] = toArray(resolveBinding(path)?.get("init")).filter(isDefined).filter(p => p.node != undefined);
+
     if (fnode.node.child) {
       const result = resolveDirectly(fnode.node.child, resolved ?? path);
       fnode.result.push(...result);

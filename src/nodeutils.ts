@@ -1,4 +1,5 @@
 import { ESTree } from "meriyah";
+import { NodePath } from "./traverse";
 
 export function isNode(candidate: unknown) : candidate is ASTNode {
   return typeof candidate === "object" && candidate != null && "type" in candidate;
@@ -258,4 +259,9 @@ export function isExportSpecifier(node: ESTree.Node): node is ESTree.ExportSpeci
 }
 
 
-export type ASTNode = ESTree.Node & { extra?: Record<string, unknown> };
+export type ASTNode = ESTree.Node & {
+  extra?: {
+    scopeId?: number;
+    nodePath?: NodePath<ASTNode>;
+  }
+};

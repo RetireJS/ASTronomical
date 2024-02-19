@@ -14,7 +14,7 @@ describe('testing index file', () => {
 
   const ast = parseScript(code);
   test('dummy', () => {})
- 
+
   test('Find FunctionExpression', () => {
     const nodes = query(ast!, "/FunctionDeclaration");
     const expectedNode = ast!.body[0] as t.FunctionDeclaration;
@@ -296,6 +296,7 @@ describe('testing index file', () => {
     console.log(nodes);
     expect(nodes).toEqual([1]);
   });
+
   
 });
 

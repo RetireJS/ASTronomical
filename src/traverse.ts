@@ -89,11 +89,10 @@ function setBinding(scopeId: number, name: string, binding: Binding) {
 
 
 let pathsCreated = 0;
-const nodeKey = "ASTronomical-path";
 
 export function createNodePath(node: ASTNode, key: string | undefined, parentKey: string | undefined, scopeId: number | undefined, nodePath?: NodePath<ASTNode>) : NodePath<ASTNode> {
-  if (node.extra && node.extra[nodeKey]) {
-    const path = node.extra[nodeKey] as NodePath<ASTNode>;
+  if (node.extra?.nodePath) {
+    const path = node.extra.nodePath;
     path.key = key;
     path.parentKey = parentKey;
     path.parentPath = nodePath;
@@ -124,8 +123,8 @@ export function createNodePath(node: ASTNode, key: string | undefined, parentKey
   path.stop = () => { path.shouldStop = true; };
   if (isNode(node)) {
     node.extra = node.extra ?? {};
-    node.extra[nodeKey] = path;
-    Object.defineProperty(node.extra, nodeKey, { enumerable: false });
+    node.extra.nodePath = path;
+    Object.defineProperty(node.extra, "nodePath", { enumerable: false });
   }
   pathsCreated++;
   return path;
