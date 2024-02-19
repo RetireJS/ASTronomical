@@ -1,6 +1,4 @@
-
-import * as Babel from "@babel/types";
-import * as t from '@babel/types';
+import { ASTNode, VISITOR_KEYS, isAssignmentExpression, isBinding, isIdentifier, isMemberExpression, isNode, isScopable, isScope } from "./nodeutils";
 
 const debugLogEnabled = false;
 
@@ -10,7 +8,7 @@ const log = {
   }
 }
 export type Binding = {
-  path: NodePath<Babel.Node>;
+  path: NodePath<ASTNode>;
 }
 
 export type Scope = {
@@ -30,14 +28,14 @@ export type NodePath<T> = {
   parentPath?: NodePath<T>;
   parentKey?: string;
   stop: () => void;
-  get(key: string): NodePath<Babel.Node>[];
+  get(key: string): NodePath<ASTNode>[];
   scopeId: number;
   shouldStop: boolean;
 };
 
 type Visitor<T> = {
-  enter: (path: NodePath<Babel.Node>, state: T) => void;
-  exit?: (path: NodePath<Babel.Node>, state: T) => void;
+  enter: (path: NodePath<ASTNode>, state: T) => void;
+  exit?: (path: NodePath<ASTNode>, state: T) => void;
 }
 
 
@@ -65,7 +63,7 @@ export function getBinding(scopeId: number, name: string) {
   }
   const s = scope.bindings[name];
   if (s) return s;
-  if (scope.parentScopeId) {
+  if (scope.parentScopeId != undefined && scope.parentScopeId >= 0) {
     return getBinding(scope.parentScopeId, name);
   }
   return undefined;
@@ -91,10 +89,11 @@ function setBinding(scopeId: number, name: string, binding: Binding) {
 
 
 let pathsCreated = 0;
+const nodeKey = "ASTronomical-path";
 
-function createNodePath(node: Babel.Node, key: string | undefined, parentKey: string | undefined, scopeId: number | undefined, nodePath?: NodePath<Babel.Node>) : NodePath<Babel.Node> {
-  if (node.extra && node.extra["babel-q-path"]) {
-    const path = node.extra["babel-q-path"] as NodePath<Babel.Node>;
+export function createNodePath(node: ASTNode, key: string | undefined, parentKey: string | undefined, scopeId: number | undefined, nodePath?: NodePath<ASTNode>) : NodePath<ASTNode> {
+  if (node.extra && node.extra[nodeKey]) {
+    const path = node.extra[nodeKey] as NodePath<ASTNode>;
     path.key = key;
     path.parentKey = parentKey;
     path.parentPath = nodePath;
@@ -113,7 +112,7 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
         if (Array.isArray(r)) {
           return r.map((n, i) => createNodePath(n, i.toString(), key, scopeId, nodePath));
         } else if (r != undefined) {
-          return [createNodePath(r as Babel.Node, key, key, scopeId, nodePath)];
+          return [createNodePath(r as ASTNode, key, key, scopeId, nodePath)];
         }
       }
       return [];
@@ -123,20 +122,25 @@ function createNodePath(node: Babel.Node, key: string | undefined, parentKey: st
     parentKey
   }
   path.stop = () => { path.shouldStop = true; };
-  if (t.isNode(node)) {
+  if (isNode(node)) {
     node.extra = node.extra ?? {};
-    node.extra["babel-q-path"] = path;
+    node.extra[nodeKey] = path;
+    Object.defineProperty(node.extra, nodeKey, { enumerable: false });
   }
   pathsCreated++;
   return path;
 }
 
 
-function registerBinding(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scopeId: number) {
-  if (t.isBinding(node, parentNode, grandParentNode) && !t.isMemberExpression(node)) {
-    if (t.isIdentifier(node) && !t.isAssignmentExpression(parentNode)) {
+
+
+function registerBinding(node: ASTNode, parentNode: ASTNode, grandParentNode: ASTNode | undefined, scopeId: number) {
+  //console.log("x registerBinding?", isIdentifier(node) ? node.name : node.type, parentNode.type, grandParentNode?.type, scopeId, isBinding(node, parentNode, grandParentNode));
+  if (isBinding(node, parentNode, grandParentNode) ) {
+    if (isIdentifier(node) && !isAssignmentExpression(parentNode) && !isMemberExpression(parentNode)) {
+      //console.log("x registerBinding!", node.name, parentNode.type, grandParentNode?.type, scopeId);
       //A bit of a hack here as well. Needs some further investigation
-      if (t.isFunctionDeclaration(parentNode) || t.isFunctionExpression(parentNode) || t.isScope(node, parentNode)) {  
+      if (isScope(node, parentNode)) {  
         setBinding(scopeId, node.name, { path: createNodePath(node, undefined, undefined, scopeId) });
       } else {
         setBinding(scopeId, node.name, { path: createNodePath(parentNode, undefined, undefined, scopeId) });            
@@ -145,21 +149,27 @@ function registerBinding(node: Babel.Node, parentNode: Babel.Node, grandParentNo
   }
 }
 
-function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentNode: Babel.Node | undefined, scopeId: number) {
+
+
+
+function registerBindings(node: ASTNode, parentNode: ASTNode, grandParentNode: ASTNode | undefined, scopeId: number) {
   if (typeof node == "object" && node != null) {
     node.extra = node.extra ?? {};
     if (node.extra["scopeId"]) return;
     node.extra["scopeId"] = scopeId;
   }
-  const keys = t.VISITOR_KEYS[node.type];
-
+  const keys = VISITOR_KEYS[node.type];
+  //console.log(keys, node);
+  if (!keys) {
+    return;
+  }
   let childScopeId = scopeId;
   // This is also buggy. Need to investigate what creates a new scope
-  if (t.isScopable(node) || t.isExportSpecifier(node)) {
+  if (isScopable(node)) {
     childScopeId = createScope(scopeId);
   }
   for (const key of keys) {
-    const childNodes = node[key as keyof Babel.Node];
+    const childNodes = node[key as keyof ASTNode];
     const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
     children.forEach((child) => {
       if (isNode(child)) {
@@ -177,32 +187,31 @@ function registerBindings(node: Babel.Node, parentNode: Babel.Node, grandParentN
   }
 }
 
-function isNode(candidate: unknown): candidate is Babel.Node {
-  //return typeof candidate === "object" && candidate != null && "type" in candidate;
-  return t.isNode(candidate);
-}
-
 function traverseInner<T>(
-  node: Babel.Node,
+  node: ASTNode,
   visitor: Visitor<T>,
   scopeId: number | undefined, 
   state: T, 
-  path?: NodePath<Babel.Node>
+  path?: NodePath<ASTNode>
   ) {
     const nodePath = path ?? createNodePath(node, undefined, undefined, scopeId);
-    const keys = t.VISITOR_KEYS[node.type];
+    const keys = VISITOR_KEYS[node.type];
     
     if (nodePath.parentPath) registerBindings(nodePath.node, nodePath.parentPath.node, nodePath.parentPath.parentPath?.node, nodePath.scopeId);
     
+    if (!keys) {
+      return;
+    }  
+
     for (const key of keys) {
-      const childNodes = node[key as keyof Babel.Node];
+      const childNodes = node[key as keyof ASTNode];
       const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
       const nodePaths = children.map((child, i) => {
         if (isNode(child)) {
           return createNodePath(child, key, Array.isArray(childNodes) ? i.toString() : key, nodePath.scopeId, nodePath);
         }
         return undefined;
-      }).filter(x => x != undefined) as NodePath<Babel.Node>[];
+      }).filter(x => x != undefined) as NodePath<ASTNode>[];
       nodePaths.forEach((childPath) => {
         visitor.enter(childPath, state);
         if (childPath.shouldStop) {
@@ -223,11 +232,11 @@ function traverseInner<T>(
 }
 
 const sOut: number[] = [];
-export default function traverse<T>(  node: Babel.Node,
+export default function traverse<T>(  node: ASTNode,
   visitor: Visitor<T>,
   scopeId: number | undefined, 
   state: T, 
-  path?: NodePath<Babel.Node>) {
+  path?: NodePath<ASTNode>) {
   traverseInner(node, visitor, scopeId, state, path);
   if (!sOut.includes(scopeIdCounter)) {
     log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated);

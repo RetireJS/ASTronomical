@@ -1,6 +1,6 @@
 import { query } from '../src/index';
-import * as t from "@babel/types";
-import * as babel from "@babel/core";
+import { parseScript } from "meriyah";
+import { ESTree as t } from "meriyah";
 
 
 describe('testing index file', () => {
@@ -12,19 +12,19 @@ describe('testing index file', () => {
     return b + c;
   }`;
 
-  const ast = babel.parseSync(code);
+  const ast = parseScript(code);
   test('dummy', () => {})
-  
+ 
   test('Find FunctionExpression', () => {
     const nodes = query(ast!, "/FunctionDeclaration");
-    const expectedNode = ast!.program.body[0] as t.FunctionDeclaration;
+    const expectedNode = ast!.body[0] as t.FunctionDeclaration;
     expect(nodes.length).toEqual(1);
     expect(nodes[0]).toBeDefined();
     expect(nodes[0]).toEqual(expectedNode);
   });
   test('Find FunctionExpressions identifier', () => {
     const nodes = query(ast!, "/FunctionDeclaration/Identifier");
-    const functionD = ast!.program.body[0] as t.FunctionDeclaration;
+    const functionD = ast!.body[0] as t.FunctionDeclaration;
     const expectedNode1 = functionD.id as t.Identifier;
     const expectedNode2 = functionD.params[0] as t.Identifier;
     expect(nodes.length).toEqual(2);
@@ -57,7 +57,7 @@ describe('testing index file', () => {
   
   test('Find named FunctionExpression', () => {
     const nodes = query(ast!, '/FunctionDeclaration[/:id/:name == "a"]');
-    const expectedNode = ast!.program.body[0] as t.FunctionDeclaration;
+    const expectedNode = ast!.body[0] as t.FunctionDeclaration;
     expect(nodes[0]).toBeDefined();
     expect(nodes[0]).toEqual(expectedNode);
   });
@@ -69,20 +69,20 @@ describe('testing index file', () => {
   
   test('Find named FunctionExpression double declaration', () => {
     const nodes = query(ast!, '/FunctionDeclaration[/:id/:name == "b" || /:id/:name == "a"]');
-    const expectedNode = ast!.program.body[0] as t.FunctionDeclaration;
+    const expectedNode = ast!.body[0] as t.FunctionDeclaration;
     expect(nodes[0]).toBeDefined();
     expect(nodes[0]).toEqual(expectedNode);
   });
 
   test('Find named FunctionExpression triple declaration', () => {
     const nodes = query(ast!, '/FunctionDeclaration[/:id/:name == "b" || /:id/:name == "a" || /:id/:name == "c"]');
-    const expectedNode = ast!.program.body[0] as t.FunctionDeclaration;
+    const expectedNode = ast!.body[0] as t.FunctionDeclaration;
     expect(nodes[0]).toBeDefined();
     expect(nodes[0]).toEqual(expectedNode);
   });
   test('Find named FunctionExpression nested', () => {
     const nodes = query(ast!, '/FunctionDeclaration[/:id[/:name == "a"]]');
-    const expectedNode = ast!.program.body[0] as t.FunctionDeclaration;
+    const expectedNode = ast!.body[0] as t.FunctionDeclaration;
     expect(nodes[0]).toBeDefined();
     expect(nodes[0]).toEqual(expectedNode);
   });
@@ -126,7 +126,7 @@ describe('testing index file', () => {
     expect(nodes.length).toEqual(1);
   });
   test("find double function expression", () => {
-    const ast = babel.parseSync(`function a() { function b() { let b = 2; } }`);
+    const ast = parseScript(`function a() { function b() { let b = 2; } }`);
     const nodes = query(ast!, "//FunctionDeclaration[//VariableDeclarator//Identifier/:name == 'b']");
     expect(nodes.length).toEqual(2);
     expect(nodes[0] == nodes[1]).toEqual(false);
@@ -201,52 +201,52 @@ describe('testing index file', () => {
   });
 
   test("should only add double filtered nodes once", () => {
-    const ast = babel.parseSync(`function a() { function b() { let c = 2; } }`);
+    const ast = parseScript(`function a() { function b() { let c = 2; } }`);
     const nodes = query(ast!, `//FunctionDeclaration[/:id/:name == 'a']//FunctionDeclaration[/:id/:name == 'b']//VariableDeclaration//Identifier/:name`);
     expect(nodes).toEqual(['c']);
   })
 
   test("should resolve value", () => {
     const code = "let x = 1; let y = 2; x = y; y = 3";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, "//AssignmentExpression/$$:right/:value");
     expect(nodes).toEqual([2, 3]);
   });
   test("should join values", () => {
     const code = "var a = { b: 1, c: 2 }";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, "//ObjectExpression/fn:join(/:properties/:value/:value, '.')");
     expect(nodes).toEqual(["1.2"]);
   });
   test("should find first", () => {
     const code = "var a = { b: 1, c: 2 }";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, "//ObjectExpression/fn:first(/:properties/:value/:value)");
     expect(nodes).toEqual([1]);
   });
   test("should concat values", () => {
     const code = "var a = { b: 1, c: 2 }";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, "//ObjectExpression/fn:concat(/:properties/:value/:value, 'ms')");
     expect(nodes).toEqual(["12ms"]);
   });
   
   test("should call function in function values", () => {
     const code = "var a = { b: 1, c: 2 }";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, "//ObjectExpression/fn:concat(/fn:first(/:properties/:value/:value), 'ms')");
     expect(nodes).toEqual(["1ms"]);
   });
   test("should be able to filter", () => {
     const code = "var a = { b: 1, c: 2 }; var d = { x: 27}";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, `//ObjectExpression[//:name == 'x']/fn:concat(/:properties/:value/:value, 'ms')`);
     console.log(nodes);
     expect(nodes.length).toEqual(1);
   });
   test("should pick nth child", () => {
     const code = "var a = { b: 1, c: 2 }";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, `//ObjectExpression/fn:nthchild(/:properties/:value/:value, 1)`);
     console.log(nodes);
     expect(nodes.length).toEqual(1);
@@ -254,7 +254,7 @@ describe('testing index file', () => {
   });
   test("should pick nth child by key", () => {
     const code = "var a = { b: 1, c: 2 }";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, `//ObjectExpression/:1/:value/:value`);
     console.log(nodes);
     expect(nodes.length).toEqual(1);
@@ -263,10 +263,11 @@ describe('testing index file', () => {
   
   test("object expression selection", () => {
     const code = "let k = 32; var a = { b: 1, c: 2 }; var d = { b: k, e: 3}";
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes = query(ast!, `//ObjectExpression[
-        /ObjectProperty/:key/:name == 'e'
-      ]/ObjectProperty[/:key/:name == 'b']/$:value/:init/:value`);
+        /Property/:key/:name == 'e'
+      ]/Property[/:key/:name == 'b']/$:value/:init/:value`);
+    console.log(nodes);
     expect(nodes).toEqual([32]);
   })
   
@@ -277,7 +278,7 @@ describe('testing index file', () => {
       let k = 1;
       b.c = k;
     }`
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code);
     const nodes1 = query(ast!, "//MemberExpression/$:object");
     const nodes2 = query(ast!, "//FunctionDeclaration//FunctionDeclaration/:id");
     expect(nodes1).toEqual(nodes2);
@@ -290,11 +291,12 @@ describe('testing index file', () => {
     export {
       a
     }`
-    const ast = babel.parseSync(code);
+    const ast = parseScript(code, { module: true });
     const nodes = query(ast!, "//AssignmentExpression/$:right/:init/:value");
     console.log(nodes);
     expect(nodes).toEqual([1]);
-  })
+  });
+  
 });
 
 

@@ -1,5 +1,5 @@
-import * as t from "@babel/types";
 import { AvailableFunction, isAvailableFunction } from ".";
+import { VISITOR_KEYS } from "./nodeutils";
 
 const debugLogEnabled = false;
 
@@ -9,9 +9,7 @@ const log = {
   }
 }
 
-const supportedIdentifiers: Record<string, keyof typeof t> = Object.fromEntries(
-  Object.keys(t).filter(key => key.startsWith("is")).map(key => [key.replace("is", ""), key as keyof typeof t])
-);
+const supportedIdentifiers: Record<string, keyof typeof VISITOR_KEYS> = Object.fromEntries(Object.keys(VISITOR_KEYS).map(k => [k, k as keyof typeof VISITOR_KEYS]));
 
 type Token = {
   type: string;

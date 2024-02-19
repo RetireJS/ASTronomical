@@ -1,7 +1,7 @@
 {
-  "name": "babel-q",
-  "version": "1.0.0-beta.10",
-  "description": "offers a way to query an babel AST to find specific patterns using a syntax somewhat similar to XPath.",
+  "name": "astronomical",
+  "version": "1.0.0-beta.11",
+  "description": "offers a way to query a Javascript AST to find specific patterns using a syntax somewhat similar to XPath.",
   "scripts": {
     "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",
     "typecheck": "tsc --noEmit",
@@ -17,15 +17,12 @@
     "prepack": "npm run build"
   },
   "repository": {
-		"type": "git",
-		"url": "https://github.com/RetireJS/babel-q.git"
-	},
+    "type": "git",
+    "url": "https://github.com/RetireJS/babel-q.git"
+  },
   "author": "Erlend Oftedal <erlend@oftedal.no>",
   "license": "Apache-2.0",
   "devDependencies": {
-    "@types/babel__core": "^7.20.5",
-    "@types/babel__traverse": "^7.20.5",
-    "@types/babel-types": "^7.0.15",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.5",
     "@typescript-eslint/eslint-plugin": "^6.20.0",
@@ -36,9 +33,7 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@babel/core": "^7.23.7",
-    "@babel/parser": "^7.23.6",
-    "@babel/traverse": "^7.23.7"
+    "meriyah": "^4.3.9"
   },
   "files": [
     "lib/**/*"

@@ -1,9 +1,7 @@
-import traverse, { getBinding, NodePath } from "./traverse";
-import * as Babel from "@babel/types";
-import { parseSync } from "@babel/core";
+import traverse, {  createNodePath, getBinding, NodePath } from "./traverse";
 import { FunctionCall, parse, QNode } from "./parseQuery";
-import { ParseResult } from "@babel/parser";
-import { isIdentifier } from "@babel/types";
+import { parseScript, ESTree } from "meriyah";
+import { ASTNode } from "./nodeutils";
 
 const debugLogEnabled = false;
 
@@ -55,22 +53,12 @@ export function isAvailableFunction(name: string) : name is AvailableFunction {
   return functionNames.includes(name);
 }
 
-function beginHandle<T extends Record<string, QNode>>(queries: T, path: ParseResult<Babel.File>) : Record<keyof T, Result[]> {
-  let rootPath: NodePath<Babel.Node> | undefined = undefined;
-  traverse(path, { 
-    enter(path) {
-      if (path.node.type == "Program") {
-        rootPath = path;
-        path.stop();
-      }
-    }
-  }, undefined, {});
-  if (rootPath == undefined) throw new Error("No root path found");
-  log.debug("Found rootNode");
+function beginHandle<T extends Record<string, QNode>>(queries: T, path: ASTNode) : Record<keyof T, Result[]> {
+  const rootPath: NodePath<ASTNode> = createNodePath(path, undefined, undefined, undefined);
   return travHandle(queries, rootPath);
 }
 
-type Result = Babel.Node | string | number | boolean;
+type Result = ASTNode | string | number | boolean;
 
 
 type FNode = {
@@ -83,7 +71,7 @@ type State = {
   child: FNode[][];
   descendant: FNode[][];
   filters: FilterResult[][];
-  matches: [FNode, NodePath<Babel.Node>][][];
+  matches: [FNode, NodePath<ASTNode>][][];
   functionCalls: FunctionCallResult[][];
 }
 type FilterCondition = {
@@ -96,7 +84,7 @@ type FilterNode = (FilterCondition | FNode);
 type FilterResult = {
   qNode: QNode;
   filter: FilterNode;
-  node: Babel.Node;
+  node: ASTNode;
   result: Array<Result>;
 }
 type FunctionCallResult = {
@@ -106,7 +94,7 @@ type FunctionCallResult = {
   result: Array<Result>;
 }
 
-function breadCrumb(path: NodePath<Babel.Node>) {
+function breadCrumb(path: NodePath<ASTNode>) {
   return { //Using the toString trick here to avoid calculating the breadcrumb if debug logging is off
     valueOf() : string {
       if (path.parentPath == undefined) return "@" + path.node.type;
@@ -166,7 +154,7 @@ function createFNodeAndAddToState(token: QNode, result: Array<Result>, state: St
   return fnode;
 }
 
-function isMatch(fnode: FNode, path: NodePath<Babel.Node>) : boolean {
+function isMatch(fnode: FNode, path: NodePath<ASTNode>) : boolean {
   if (fnode.node.attribute) {
     const m = fnode.node.value == path.parentKey || fnode.node.value == path.key
     if (m) log.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
@@ -180,7 +168,7 @@ function isMatch(fnode: FNode, path: NodePath<Babel.Node>) : boolean {
   return m;
 }
 
-function addIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State) {
+function addIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: State) {
   if (!isMatch(fnode, path)) return;
   state.matches[state.depth].push([fnode, path]);
   if (fnode.node.filter) {
@@ -208,7 +196,7 @@ function addIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State)
   }
 }
 
-function addFunction(rootNode: FNode, functionCall: FunctionCall, path: NodePath<Babel.Node>, state: State): FunctionCallResult {
+function addFunction(rootNode: FNode, functionCall: FunctionCall, path: NodePath<ASTNode>, state: State): FunctionCallResult {
   const functionNode: FunctionCallResult = { node: rootNode.node, functionCall: functionCall, parameters: [], result: [] };
   for (const param of functionCall.parameters) {
     if (param.type == "literal") {
@@ -229,7 +217,7 @@ function isPrimitive(value: unknown) : boolean {
   return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
 }
 
-function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<Babel.Node>) {
+function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<ASTNode>) {
   if (!fnode.node.attribute || !fnode.node.value) return;
   if (fnode.node.child || fnode.node.filter) return;
   if (!Object.hasOwn(path.node, fnode.node.value)) return;
@@ -242,7 +230,7 @@ function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<Babel.Node>) 
   fnode.result.push(...nodes.map(n => n.node));
 }
 
-function evaluateFilter(filter: FilterNode, path: NodePath<Babel.Node>) : Result[] {
+function evaluateFilter(filter: FilterNode, path: NodePath<ASTNode>) : Result[] {
   log.debug("EVALUATING FILTER", filter);
   if ("type" in filter) {
     if (filter.type == "and") {
@@ -267,7 +255,12 @@ function evaluateFilter(filter: FilterNode, path: NodePath<Babel.Node>) : Result
   }
   return filter.result;
 }
-function resolveBinding(path: NodePath<Babel.Node>) : NodePath<Babel.Node> | undefined {
+
+function isIdentifier(node: ASTNode) : node is ESTree.Identifier {
+  return node.type == "Identifier";
+}
+
+function resolveBinding(path: NodePath<ASTNode>) : NodePath<ASTNode> | undefined {
   if (!isIdentifier(path.node)) return undefined;
   log.debug("RESOLVING BINDING FOR ", path.node);
   const name = path.node.name;
@@ -279,7 +272,7 @@ function resolveBinding(path: NodePath<Babel.Node>) : NodePath<Babel.Node> | und
   return binding.path;
 }
 
-function resolveFilterWithParent(node: QNode, path: NodePath<Babel.Node>) : Result[] {
+function resolveFilterWithParent(node: QNode, path: NodePath<ASTNode>) : Result[] {
   let startNode: QNode = node;
   let startPath = path;
   while(startNode.type == "parent") {
@@ -297,7 +290,7 @@ function isDefined<T>(value: T | undefined | null) : value is T {
   return value != undefined && value != null;
 }
 let subQueryCounter = 0;
-function resolveDirectly(node: QNode, path: NodePath<Babel.Node>) : Result[] {
+function resolveDirectly(node: QNode, path: NodePath<ASTNode>) : Result[] {
   let startNode: QNode = node;
   const startPath = path;
   let paths = [startPath];
@@ -329,7 +322,7 @@ function resolveDirectly(node: QNode, path: NodePath<Babel.Node>) : Result[] {
   return result;
 }
 
-function addResultIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: State) {
+function addResultIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: State) {
   const filters = state.filters[state.depth].filter(f => f.node == path.node && f.qNode == fnode.node);
   const matchingFilters = filters.filter(f => evaluateFilter(f.filter, path).length > 0);
   log.debug("RESULT MATCH", fnode.node.value, breadCrumb(path), filters.length, matchingFilters.length);
@@ -365,7 +358,7 @@ function addResultIfTokenMatch(fnode: FNode, path: NodePath<Babel.Node>, state: 
   } 
 }
 
-function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath<Babel.Node>, state: State) {
+function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath<ASTNode>, state: State) {
   const parameterResults: Result[][] = [];
   for (const p of functionCallResult.parameters) {
     if ("parameters" in p) {
@@ -381,7 +374,7 @@ function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResu
 }
 
 
-function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<Babel.Node>) : Record<keyof T, Result[]> {
+function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<ASTNode>) : Record<keyof T, Result[]> {
   const results = Object.fromEntries(Object.keys(queries).map(name => [name, [] as Result[]])) as Record<keyof T, Result[]>;
   const state: State = {
     depth: 0,
@@ -434,23 +427,24 @@ function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<
 
 const defaultKey = "__default__";
 
-export function query(code: ParseResult<Babel.File> | string, query: string) : Result[] {
+export function query(code: ASTNode | string, query: string) : Result[] {
   return multiQuery(code, { [defaultKey]: query })[defaultKey];
 }
 
-export function multiQuery<T extends Record<string, string>>(code: ParseResult<Babel.File> | string, namedQueries: T) : Record<keyof T, Result[]> {
+export function multiQuery<T extends Record<string, string>>(code: ASTNode | string, namedQueries: T) : Record<keyof T, Result[]> {
   const start = Date.now();
-  const ast = typeof code == "string" ? parseSync(code, { 
-    sourceType: "unambiguous",
-    parserOpts: {
-      attachComment: false,
-      ranges: false,
-      tokens: false,
-    }
-  }) : code;
+  const ast = typeof code == "string" ? parseSource(code) : code;
   if (ast == null) throw new Error("Could not pase code");
   const queries = Object.fromEntries(Object.entries(namedQueries).map(([name, query]) => [name, parse(query)])) as Record<keyof T, QNode>;
   const result =  beginHandle(queries, ast);
   log.debug("Query time: ", Date.now() - start);
   return result;
+}
+
+export function parseSource(source: string) : ASTNode {
+  try {
+    return parseScript(source, { module: true, next: true, specDeviation:  true});
+  } catch(e) {
+    return parseScript(source, { module: false, next: true, specDeviation:  true});
+  }
 }

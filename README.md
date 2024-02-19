@@ -1,7 +1,7 @@
-# babel-q
+# ASTronomical
 
-`babel-q` offers a way to query an babel AST to find specific patterns using a syntax somewhat similar to XPath. 
-`babel-q` was inspired by [astq](https://github.com/rse/astq), but offers some features that did not seem possible in `astq` and also has some limits compared to `astq`.
+`astronomical` offers a way to query a JavaScript AST to find specific patterns using a syntax somewhat similar to XPath. 
+`astronomical` was inspired by [astq](https://github.com/rse/astq), but offers some features that did not seem possible in `astq` and also has some limits compared to `astq`.
 
 Goals:
 
@@ -55,8 +55,8 @@ the object is bound to a parameter of the surrounding function, an return the as
 
 ## API
 
-* `query(code: ParseResult<Babel.File> | string, query: string) : Result[]` - Runs the given query on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "unambiguous"`), and returns the result.
-* `multiQuery<T extends Record<string, string>>(code: ParseResult<Babel.File> | string, namedQueries: T) : Record<keyof T, Result[]>` - Runs the given set of named queries on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "unambiguous"`), and returns a map of named results (one result array per named query).
+* `query(code: string, query: string) : Result[]` - Runs the given query on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "unambiguous"`), and returns the result.
+* `multiQuery<T extends Record<string, string>>(code: string, namedQueries: T) : Record<keyof T, Result[]>` - Runs the given set of named queries on the given code in the form of an already parsed AST or a string (which is parsed as `sourceType: "unambiguous"`), and returns a map of named results (one result array per named query).
 
 where `Result` is `Babel.Node | string | number | boolean;`
 
@@ -64,7 +64,7 @@ where `Result` is `Babel.Node | string | number | boolean;`
 ## Example code
 
 ```
-import { query } from "babel-q";
+import { query } from "astronomical";
 import * as fs from "fs";
 
 const contents = fs.readFileSync("some-file.js");
