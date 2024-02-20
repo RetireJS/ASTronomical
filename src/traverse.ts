@@ -1,4 +1,5 @@
-import { ASTNode, VISITOR_KEYS, isAssignmentExpression, isBinding, isIdentifier, isMemberExpression, isNode, isScopable, isScope } from "./nodeutils";
+import { VISITOR_KEYS, isAssignmentExpression, isBinding, isIdentifier, isMemberExpression, isNode, isScopable, isScope } from "./nodeutils";
+import { ESTree } from "meriyah";
 
 const debugLogEnabled = false;
 
@@ -8,34 +9,35 @@ const log = {
   }
 }
 export type Binding = {
-  path: NodePath<ASTNode>;
+  path: NodePath;
 }
 
 export type Scope = {
   bindings: Record<string, Binding>;
   parentScopeId?: number;
   id: number;
-  hasEntries: boolean;
 };
 
 const scopes: Array<Scope | number> = new Array(100000);
 
-const voidFn = () => {};
+export type ASTNode = ESTree.Node & {
+  extra?: {
+    scopeId?: number;
+    nodePath?: NodePath;
+  }
+};
 
-export type NodePath<T> = {
-  node: T;
+export type NodePath = {
+  node: ASTNode;
   key?: string;
-  parentPath?: NodePath<T>;
+  parentPath?: NodePath;
   parentKey?: string;
-  stop: () => void;
-  get(key: string): NodePath<ASTNode>[];
   scopeId: number;
-  shouldStop: boolean;
 };
 
 type Visitor<T> = {
-  enter: (path: NodePath<ASTNode>, state: T) => void;
-  exit?: (path: NodePath<ASTNode>, state: T) => void;
+  enter: (path: NodePath, state: T) => void;
+  exit: (path: NodePath, state: T) => void;
 }
 
 
@@ -44,13 +46,6 @@ let removedScopes = 0;
 
 function createScope(parentScopeId?: number): number {
   const id = scopeIdCounter++;
-  /*const bindings: Record<string, Binding> = {};
-  const s: Scope = {
-    bindings,
-    id,
-    parentScopeId,
-    hasEntries: false
-  }*/
   scopes[id] = parentScopeId ?? -1;
   return id;
 }
@@ -76,21 +71,32 @@ function setBinding(scopeId: number, name: string, binding: Binding) {
       bindings: {},
       id: scopeId,
       parentScopeId: s == -1 ? undefined : s,
-      hasEntries: false
     };
     scopes[scopeId] = scope;
   } else {
     scope = s;
   }
   scope.bindings[name] = binding;
-  scope.hasEntries = true;
 }
 
 
 
 let pathsCreated = 0;
 
-export function createNodePath(node: ASTNode, key: string | undefined, parentKey: string | undefined, scopeId: number | undefined, nodePath?: NodePath<ASTNode>) : NodePath<ASTNode> {
+export function getChildren(key: string, path: NodePath) : NodePath[] {
+    if (key in path.node) {
+      const r = (path.node as unknown as Record<string, unknown>)[key];
+      if (Array.isArray(r)) {
+        return r.map((n, i) => createNodePath(n, i.toString(), key, path.scopeId, path));
+      } else if (r != undefined) {
+        return [createNodePath(r as ASTNode, key, key, path.scopeId, path)];
+      }
+    }
+    return [];
+}
+
+
+export function createNodePath(node: ASTNode, key: string | undefined, parentKey: string | undefined, scopeId: number | undefined, nodePath?: NodePath) : NodePath {
   if (node.extra?.nodePath) {
     const path = node.extra.nodePath;
     path.key = key;
@@ -103,24 +109,10 @@ export function createNodePath(node: ASTNode, key: string | undefined, parentKey
   const path = {
     node,
     scopeId: finalScope,
-    shouldStop: false,
-    stop: voidFn,
-    get: (key: string) => {
-      if (key in node) {
-        const r = (node as unknown as Record<string, unknown>)[key];
-        if (Array.isArray(r)) {
-          return r.map((n, i) => createNodePath(n, i.toString(), key, scopeId, nodePath));
-        } else if (r != undefined) {
-          return [createNodePath(r as ASTNode, key, key, scopeId, nodePath)];
-        }
-      }
-      return [];
-    },
     parentPath: nodePath,
     key,
     parentKey
   }
-  path.stop = () => { path.shouldStop = true; };
   if (isNode(node)) {
     node.extra = node.extra ?? {};
     node.extra.nodePath = path;
@@ -159,9 +151,8 @@ function registerBindings(node: ASTNode, parentNode: ASTNode, grandParentNode: A
   }
   const keys = VISITOR_KEYS[node.type];
   //console.log(keys, node);
-  if (!keys) {
-    return;
-  }
+  if (keys.length == 0) return;
+
   let childScopeId = scopeId;
   // This is also buggy. Need to investigate what creates a new scope
   if (isScopable(node)) {
@@ -191,16 +182,12 @@ function traverseInner<T>(
   visitor: Visitor<T>,
   scopeId: number | undefined, 
   state: T, 
-  path?: NodePath<ASTNode>
+  path?: NodePath
   ) {
     const nodePath = path ?? createNodePath(node, undefined, undefined, scopeId);
-    const keys = VISITOR_KEYS[node.type];
+    const keys = VISITOR_KEYS[node.type] ?? [];
     
     if (nodePath.parentPath) registerBindings(nodePath.node, nodePath.parentPath.node, nodePath.parentPath.parentPath?.node, nodePath.scopeId);
-    
-    if (!keys) {
-      return;
-    }  
 
     for (const key of keys) {
       const childNodes = node[key as keyof ASTNode];
@@ -210,22 +197,11 @@ function traverseInner<T>(
           return createNodePath(child, key, Array.isArray(childNodes) ? i.toString() : key, nodePath.scopeId, nodePath);
         }
         return undefined;
-      }).filter(x => x != undefined) as NodePath<ASTNode>[];
+      }).filter(x => x != undefined) as NodePath[];
       nodePaths.forEach((childPath) => {
-        visitor.enter(childPath, state);
-        if (childPath.shouldStop) {
-          childPath.shouldStop = false;
-          nodePath.shouldStop = true;
-          return;
-        }      
+        visitor.enter(childPath, state);   
         traverseInner(childPath.node, visitor, nodePath.scopeId, state, childPath);
-        if (visitor.exit) visitor.exit(childPath, state);
-
-        if (childPath.shouldStop) {
-          childPath.shouldStop = false;
-          nodePath.shouldStop = true;
-          return;
-        }      
+        visitor.exit(childPath, state);   
       });
     }
 }
@@ -235,7 +211,7 @@ export default function traverse<T>(  node: ASTNode,
   visitor: Visitor<T>,
   scopeId: number | undefined, 
   state: T, 
-  path?: NodePath<ASTNode>) {
+  path?: NodePath) {
   traverseInner(node, visitor, scopeId, state, path);
   if (!sOut.includes(scopeIdCounter)) {
     log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated);

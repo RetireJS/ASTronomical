@@ -1,6 +1,6 @@
 {
   "name": "astronomical",
-  "version": "1.0.0-beta.12",
+  "version": "1.0.0-beta.13",
   "description": "offers a way to query a Javascript AST to find specific patterns using a syntax somewhat similar to XPath.",
   "scripts": {
     "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",
@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/RetireJS/babel-q.git"
+    "url": "https://github.com/RetireJS/ASTronomical.git"
   },
   "author": "Erlend Oftedal <erlend@oftedal.no>",
   "license": "Apache-2.0",

@@ -1,7 +1,6 @@
-import traverse, {  createNodePath, getBinding, NodePath } from "./traverse";
+import traverse, {  ASTNode, createNodePath, getBinding, getChildren, NodePath } from "./traverse";
 import { FunctionCall, parse, QNode } from "./parseQuery";
 import { parseScript, ESTree } from "meriyah";
-import { ASTNode } from "./nodeutils";
 
 const debugLogEnabled = false;
 
@@ -54,7 +53,7 @@ export function isAvailableFunction(name: string) : name is AvailableFunction {
 }
 
 function beginHandle<T extends Record<string, QNode>>(queries: T, path: ASTNode) : Record<keyof T, Result[]> {
-  const rootPath: NodePath<ASTNode> = createNodePath(path, undefined, undefined, undefined);
+  const rootPath: NodePath = createNodePath(path, undefined, undefined, undefined);
   return travHandle(queries, rootPath);
 }
 
@@ -71,7 +70,7 @@ type State = {
   child: FNode[][];
   descendant: FNode[][];
   filters: FilterResult[][];
-  matches: [FNode, NodePath<ASTNode>][][];
+  matches: [FNode, NodePath][][];
   functionCalls: FunctionCallResult[][];
 }
 type FilterCondition = {
@@ -94,7 +93,7 @@ type FunctionCallResult = {
   result: Array<Result>;
 }
 
-function breadCrumb(path: NodePath<ASTNode>) {
+function breadCrumb(path: NodePath) {
   return { //Using the toString trick here to avoid calculating the breadcrumb if debug logging is off
     valueOf() : string {
       if (path.parentPath == undefined) return "@" + path.node.type;
@@ -154,7 +153,7 @@ function createFNodeAndAddToState(token: QNode, result: Array<Result>, state: St
   return fnode;
 }
 
-function isMatch(fnode: FNode, path: NodePath<ASTNode>) : boolean {
+function isMatch(fnode: FNode, path: NodePath) : boolean {
   if (fnode.node.attribute) {
     const m = fnode.node.value == path.parentKey || fnode.node.value == path.key
     if (m) log.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
@@ -168,7 +167,7 @@ function isMatch(fnode: FNode, path: NodePath<ASTNode>) : boolean {
   return m;
 }
 
-function addIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: State) {
+function addIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
   if (!isMatch(fnode, path)) return;
   state.matches[state.depth].push([fnode, path]);
   if (fnode.node.filter) {
@@ -196,7 +195,7 @@ function addIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: State) {
   }
 }
 
-function addFunction(rootNode: FNode, functionCall: FunctionCall, path: NodePath<ASTNode>, state: State): FunctionCallResult {
+function addFunction(rootNode: FNode, functionCall: FunctionCall, path: NodePath, state: State): FunctionCallResult {
   const functionNode: FunctionCallResult = { node: rootNode.node, functionCall: functionCall, parameters: [], result: [] };
   for (const param of functionCall.parameters) {
     if (param.type == "literal") {
@@ -217,11 +216,11 @@ function isPrimitive(value: unknown) : boolean {
   return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
 }
 
-function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<ASTNode>) {
+function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath) {
   if (!fnode.node.attribute || !fnode.node.value) return;
   if (fnode.node.child || fnode.node.filter) return;
   if (!Object.hasOwn(path.node, fnode.node.value)) return;
-  const lookup = path.get(fnode.node.value);
+  const lookup = getChildren(fnode.node.value, path);
   const nodes = (Array.isArray(lookup) ? lookup : [lookup])
     .filter(n => n.node != undefined)
     .filter(n => isPrimitive(n.node));
@@ -230,7 +229,7 @@ function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath<ASTNode>) {
   fnode.result.push(...nodes.map(n => n.node));
 }
 
-function evaluateFilter(filter: FilterNode, path: NodePath<ASTNode>) : Result[] {
+function evaluateFilter(filter: FilterNode, path: NodePath) : Result[] {
   log.debug("EVALUATING FILTER", filter, breadCrumb(path));
   if ("type" in filter) {
     if (filter.type == "and") {
@@ -260,7 +259,7 @@ function isIdentifier(node: ASTNode) : node is ESTree.Identifier {
   return node.type == "Identifier";
 }
 
-function resolveBinding(path: NodePath<ASTNode>) : NodePath<ASTNode> | undefined {
+function resolveBinding(path: NodePath) : NodePath | undefined {
   if (!isIdentifier(path.node)) return undefined;
   log.debug("RESOLVING BINDING FOR ", path.node);
   const name = path.node.name;
@@ -272,7 +271,7 @@ function resolveBinding(path: NodePath<ASTNode>) : NodePath<ASTNode> | undefined
   return binding.path;
 }
 
-function resolveFilterWithParent(node: QNode, path: NodePath<ASTNode>) : Result[] {
+function resolveFilterWithParent(node: QNode, path: NodePath) : Result[] {
   let startNode: QNode = node;
   let startPath = path;
   while(startNode.type == "parent") {
@@ -290,7 +289,7 @@ function isDefined<T>(value: T | undefined | null) : value is T {
   return value != undefined && value != null;
 }
 let subQueryCounter = 0;
-function resolveDirectly(node: QNode, path: NodePath<ASTNode>) : Result[] {
+function resolveDirectly(node: QNode, path: NodePath) : Result[] {
   let startNode: QNode = node;
   const startPath = path;
   let paths = [startPath];
@@ -298,12 +297,12 @@ function resolveDirectly(node: QNode, path: NodePath<ASTNode>) : Result[] {
     const lookup = startNode.value;
     if (!lookup) throw new Error("Selector must have a value");
     log.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
-    const nodes = paths.map(n => n.get(lookup)).map(toArray).flat().filter(n => n.node != undefined);
+    const nodes = paths.map(n => getChildren(lookup, n)).map(toArray).flat().filter(n => n.node != undefined);
     log.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node), nodes.filter(n => n.node == undefined));
     if (nodes.length == 0) return [];
     paths = nodes;
     if (startNode.resolve) {
-      const resolved = paths.map(p => resolveBinding(p)).filter(isDefined).map(p => p.get("init")).flatMap(toArray).filter(p => p.node != undefined).filter(isDefined);
+      const resolved = paths.map(p => resolveBinding(p)).filter(isDefined).map(p => getChildren("init", p)).flatMap(toArray).filter(p => p.node != undefined).filter(isDefined);
       if (resolved.length > 0) paths = resolved;
     } else if (startNode.binding) {
       paths = paths.map(p => resolveBinding(p)).filter(isDefined);
@@ -326,14 +325,15 @@ function resolveDirectly(node: QNode, path: NodePath<ASTNode>) : Result[] {
   return result;
 }
 
-function addResultIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: State) {
+function addResultIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
   const filters = state.filters[state.depth].filter(f => f.node == path.node && f.qNode == fnode.node);
   const matchingFilters = filters.filter(f => evaluateFilter(f.filter, path).length > 0);
   log.debug("RESULT MATCH", fnode.node.value, breadCrumb(path), filters.length, matchingFilters.length);
   if (filters.length > 0 && matchingFilters.length == 0) return;
 
   if (fnode.node.resolve) {
-    const [resolved] = toArray(resolveBinding(path)?.get("init")).filter(isDefined).filter(p => p.node != undefined);
+    const binding = resolveBinding(path);
+    const resolved = binding ? getChildren("init", binding)[0] : undefined;
 
     if (fnode.node.child) {
       const result = resolveDirectly(fnode.node.child, resolved ?? path);
@@ -363,7 +363,7 @@ function addResultIfTokenMatch(fnode: FNode, path: NodePath<ASTNode>, state: Sta
   } 
 }
 
-function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath<ASTNode>, state: State) {
+function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath, state: State) {
   const parameterResults: Result[][] = [];
   for (const p of functionCallResult.parameters) {
     if ("parameters" in p) {
@@ -379,7 +379,7 @@ function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResu
 }
 
 
-function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath<ASTNode>) : Record<keyof T, Result[]> {
+function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath) : Record<keyof T, Result[]> {
   const results = Object.fromEntries(Object.keys(queries).map(name => [name, [] as Result[]])) as Record<keyof T, Result[]>;
   const state: State = {
     depth: 0,

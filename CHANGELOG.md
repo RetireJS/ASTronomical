@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.0-beta.13] - 2024-02-20
+
+### Performance
+
+* Reducing memory consumption
+
+## [1.0.0-beta.12] - 2024-02-14
+
+### Performance
+
+* Replacing babel with meriyah
+
+## [1.0.0-beta.12] - 2024-02-14
+
+### Performance
+
+* Replacing babel with meriyah
+
 ## [1.0.0-beta.10] - 2024-02-15
 
 ### Bugfix
@@ -11,13 +29,6 @@
 ### Bugfix
 
 * More scoping issues for binding
-
-## [1.0.0-beta.12] - 2024-02-14
-
-### Performance
-
-* Replacing babel with meriyah
-
 
 ## [1.0.0-beta.8] - 2024-02-14
 
