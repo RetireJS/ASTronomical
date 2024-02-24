@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta.14] - 2024-02-24
+
+### Refactoring
+
+* Remove globals leakage from scopes++
+
 ## [1.0.0-beta.13] - 2024-02-20
 
 ### Performance
