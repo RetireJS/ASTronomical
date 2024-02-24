@@ -5,6 +5,10 @@ export function isNode(candidate: unknown) : candidate is ASTNode {
   return typeof candidate === "object" && candidate != null && "type" in candidate;
 }
 
+export function isPrimitive(value: unknown) : boolean {
+  return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
+}
+
 export function isAssignmentExpression(node: ESTree.Node): node is ESTree.AssignmentExpression {
   return node.type === "AssignmentExpression";
 }
