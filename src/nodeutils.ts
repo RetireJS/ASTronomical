@@ -1,11 +1,20 @@
 import { ESTree } from "meriyah";
-import { ASTNode } from "./traverse";
+import { ASTNode, NodePath } from "./traverse";
+import { PrimitiveValue } from ".";
 
 export function isNode(candidate: unknown) : candidate is ASTNode {
   return typeof candidate === "object" && candidate != null && "type" in candidate;
 }
 
-export function isPrimitive(value: unknown) : boolean {
+export function isNodePath(candidate: unknown) : candidate is NodePath {
+  return typeof candidate === "object" && candidate != null && "node" in candidate;
+}
+
+export function isLiteral(candidate: unknown) : candidate is ESTree.Literal {
+  return isNode(candidate) && candidate.type === "Literal";
+}
+
+export function isPrimitive(value: unknown) : value is PrimitiveValue {
   return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
 }
 

@@ -1,7 +1,7 @@
 import createTraverser, {  ASTNode, NodePath } from "./traverse";
 import { FunctionCall, parse, QNode } from "./parseQuery";
 import { parseScript } from "meriyah";
-import { isIdentifier, isPrimitive } from "./nodeutils";
+import { isIdentifier, isNodePath, isPrimitive } from "./nodeutils";
 
 const debugLogEnabled = false;
 
@@ -54,8 +54,9 @@ export function isAvailableFunction(name: string) : name is AvailableFunction {
 }
 
 
+export type PrimitiveValue = string | number | boolean;
 
-type Result = ASTNode | string | number | boolean;
+type Result = ASTNode | PrimitiveValue;
 
 
 type FNode = {
@@ -103,7 +104,7 @@ function breadCrumb(path: NodePath) {
 function createQuerier() {
 
   const traverser = createTraverser();
-  const { getChildren, getBinding, createNodePath, traverse } = traverser;
+  const { getChildren, getPrimitiveChildren, getPrimitiveChildrenOrNodePaths, getBinding, createNodePath, traverse } = traverser;
 
   function createFilter(filter: QNode, filterResult: Array<Result>) : FilterNode {
     if (filter.type == "and" || filter.type == "or" || filter.type == "equals") {
@@ -216,16 +217,13 @@ function createQuerier() {
 
 
   function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath) {
-    if (!fnode.node.attribute || !fnode.node.value) return;
+    if (!fnode.node.attribute || fnode.node.value == undefined) return;
     if (fnode.node.child || fnode.node.filter) return;
     if (!Object.hasOwn(path.node, fnode.node.value)) return;
-    const lookup = getChildren(fnode.node.value, path);
-    const nodes = toArray(lookup)
-      .filter(n => n.node != undefined)
-      .filter(n => isPrimitive(n.node));
+    const nodes = getPrimitiveChildren(fnode.node.value, path);
     if (nodes.length == 0) return;
-    log.debug("PRIMITIVE", fnode.node.value, nodes.map(n => n.node));
-    fnode.result.push(...nodes.map(n => n.node));
+    log.debug("PRIMITIVE", fnode.node.value, nodes);
+    fnode.result.push(...nodes);
   }
 
   function evaluateFilter(filter: FilterNode, path: NodePath) : Result[] {
@@ -279,8 +277,7 @@ function createQuerier() {
     }
     return resolveDirectly(startNode, startPath);
   }
-  const toArray = <T>(value: T | T[]) : T[] => Array.isArray(value) ? value : [value];
-
+  
   function isDefined<T>(value: T | undefined | null) : value is T {
     return value != undefined && value != null;
   }
@@ -288,32 +285,33 @@ function createQuerier() {
   function resolveDirectly(node: QNode, path: NodePath) : Result[] {
     let startNode: QNode = node;
     const startPath = path;
-    let paths = [startPath];
+    let paths: Array<PrimitiveValue | NodePath> = [startPath];
     while(startNode.attribute && startNode.type == "child") {
       const lookup = startNode.value;
       if (!lookup) throw new Error("Selector must have a value");
-      log.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
-      const nodes = paths.map(n => getChildren(lookup, n)).map(toArray).flat().filter(n => n.node != undefined);
-      log.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node), nodes.filter(n => n.node == undefined));
+      //log.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
+      const nodes = paths.filter(isNodePath).map(n => getPrimitiveChildrenOrNodePaths(lookup, n)).flat();
+      //log.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node));
+      //console.log(nodes);
       if (nodes.length == 0) return [];
       paths = nodes;
       if (startNode.resolve) {
-        const resolved = paths.map(p => resolveBinding(p)).filter(isDefined).map(p => getChildren("init", p)).flatMap(toArray).filter(p => p.node != undefined).filter(isDefined);
+        const resolved = paths.filter(isNodePath).map(p => resolveBinding(p)).filter(isDefined).map(p => getChildren("init", p)).flat();
         if (resolved.length > 0) paths = resolved;
       } else if (startNode.binding) {
-        paths = paths.map(p => resolveBinding(p)).filter(isDefined);
+        paths = paths.filter(isNodePath).map(p => resolveBinding(p)).filter(isDefined);
       }
       const filter = startNode.filter;
       if (filter) {
-        paths = paths.filter(p => travHandle({subquery: filter}, p).subquery.length > 0);
+        paths = paths.filter(isNodePath).filter(p => travHandle({subquery: filter}, p).subquery.length > 0);
       }
       if (!startNode.child) {
-        return paths.map(p => p.node);
+        return paths.map(p => isPrimitive(p) ? p : p.node);
       }
       startNode = startNode.child;
     }
-    log.debug("DIRECT TRAV RESOLVE", startNode, paths.map(p => breadCrumb(p)));
-    const result = paths.flatMap(path => {
+    //log.debug("DIRECT TRAV RESOLVE", startNode, paths.map(p => breadCrumb(p)));
+    const result = paths.filter(isNodePath).flatMap(path => {
       const subQueryKey = "subquery-" + subQueryCounter++;
       return travHandle({[subQueryKey]:startNode}, path)[subQueryKey];
     });

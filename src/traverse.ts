@@ -1,6 +1,7 @@
-import { VISITOR_KEYS, isAssignmentExpression, isBinding, isIdentifier, isMemberExpression, isNode, isScopable, isScope } from "./nodeutils";
+import { VISITOR_KEYS, isAssignmentExpression, isBinding, isIdentifier, isMemberExpression, isNode, isPrimitive, isScopable, isScope } from "./nodeutils";
 import { ESTree } from "meriyah";
 import { isDefined, toArray } from "./utils";
+import { PrimitiveValue } from ".";
 
 const debugLogEnabled = false;
 
@@ -44,6 +45,7 @@ type Visitor<T> = {
 export default function createTraverser() {
   let scopeIdCounter = 0;
   let removedScopes = 0;
+  //const nodePathsCreated: Record<string, number> = {}
 
   function createScope(parentScopeId?: number): number {
     const id = scopeIdCounter++;
@@ -58,7 +60,7 @@ export default function createTraverser() {
       return getBinding(scope, name);
     }
     const s = scope.bindings[name];
-    if (s) return s;
+    if (s != undefined) return s;
     if (scope.parentScopeId != undefined && scope.parentScopeId >= 0) {
       return getBinding(scope.parentScopeId, name);
     }
@@ -95,6 +97,31 @@ export default function createTraverser() {
       }
       return [];
   }
+  function getPrimitiveChildren(key: string, path: NodePath) : PrimitiveValue[] {
+    if (key in path.node) {
+      const r = (path.node as unknown as Record<string, unknown>)[key];
+      return toArray(r).filter(isDefined).filter(isPrimitive);
+    }
+    return [];
+  }
+  function getPrimitiveChildrenOrNodePaths(key: string, path: NodePath) : Array<PrimitiveValue | NodePath> {
+    if (key in path.node) {
+      const r = (path.node as unknown as Record<string, unknown>)[key];
+      if (Array.isArray(r)) {
+        return r.map((n, i) => 
+          isPrimitive(n) ? n : 
+          // isLiteral(n) ? n.value as PrimitiveValue :
+          createNodePath(n, i.toString(), key, path.scopeId, path));
+      } else if (r != undefined) {
+        return [
+          isPrimitive(r) ? r : 
+          // isLiteral(r) ? r.value as PrimitiveValue :
+          createNodePath(r as ASTNode, key, key, path.scopeId, path)
+        ];
+      }
+    }
+    return [];
+  }
 
 
   function createNodePath(node: ASTNode, key: string | undefined, parentKey: string | undefined, scopeId: number | undefined, nodePath?: NodePath) : NodePath {
@@ -119,6 +146,11 @@ export default function createTraverser() {
       node.extra.nodePath = path;
       Object.defineProperty(node.extra, "nodePath", { enumerable: false });
     }
+    /*const x: string| undefined = node.type;
+    if (x == undefined) {
+      console.log("x", node, key, parentKey, nodePath?.node?.type);
+    }*/
+    //nodePathsCreated[node.type] = (nodePathsCreated[node.type] ?? 0) + 1;
     pathsCreated++;
     return path;
   }
@@ -143,13 +175,13 @@ export default function createTraverser() {
 
 
 
-
+  let bindingNodesVisited = 0;
   function registerBindings(node: ASTNode, parentNode: ASTNode, grandParentNode: ASTNode | undefined, scopeId: number) {
-    if (typeof node == "object" && node != null) {
-      node.extra = node.extra ?? {};
-      if (node.extra["scopeId"]) return;
-      node.extra["scopeId"] = scopeId;
-    }
+    if (!isNode(node)) return
+    node.extra = node.extra ?? {};
+    if (node.extra["scopeId"] != undefined) return;
+    node.extra["scopeId"] = scopeId;
+    bindingNodesVisited++;;
     const keys = VISITOR_KEYS[node.type];
     //console.log(keys, node);
     if (keys.length == 0) return;
@@ -216,14 +248,20 @@ export default function createTraverser() {
     path?: NodePath) {
     traverseInner(node, visitor, scopeId, state, path);
     if (!sOut.includes(scopeIdCounter)) {
-      log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated);
+      log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated, bindingNodesVisited);
       sOut.push(scopeIdCounter);
+      //const k = Object.fromEntries(Object.entries(nodePathsCreated).sort((a, b) => b[1] - a[1]));
+      //console.log("Node paths created", k);
     }
+
+
   }
   return {
     traverse,
     createNodePath,
     getChildren,
+    getPrimitiveChildren,
+    getPrimitiveChildrenOrNodePaths,
     getBinding
   }
 }

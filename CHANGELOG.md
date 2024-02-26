@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta.15] - 2024-02-24
+
+### Fixing
+
+* Fix scope creation bug and reduce nodePath creation
+
 ## [1.0.0-beta.14] - 2024-02-24
 
 ### Refactoring
