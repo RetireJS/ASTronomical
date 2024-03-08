@@ -295,6 +295,17 @@ describe('testing index file', () => {
     expect(nodes).toEqual([1]);
   });
 
+  test("should hoist variables to function scope", () => {
+    const code = `
+      function a() {
+        for(var x=0,u=22; x<10; x++) {
+        }
+        return u;
+      }
+    `
+    const nodes = query(code, "//ReturnStatement/$:argument/:init/:value");
+    expect(nodes).toEqual([22]);
+  })
   
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "astronomical",
-  "version": "1.0.0-beta.15",
+  "version": "1.0.0-beta.16",
   "description": "offers a way to query a Javascript AST to find specific patterns using a syntax somewhat similar to XPath.",
   "scripts": {
     "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",

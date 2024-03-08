@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.0-beta.16] - 2024-03-08
+
+### Bugfix
+
+* Fixing binding issues for hoisting
+
 ## [1.0.0-beta.15] - 2024-02-24
 
 ### Fixing

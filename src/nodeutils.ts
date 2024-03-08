@@ -18,6 +18,10 @@ export function isPrimitive(value: unknown) : value is PrimitiveValue {
   return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
 }
 
+export function isUpdateExpression(value: unknown) : value is ESTree.UpdateExpression {
+  return isNode(value) && value.type === "UpdateExpression";
+}
+
 export function isAssignmentExpression(node: ESTree.Node): node is ESTree.AssignmentExpression {
   return node.type === "AssignmentExpression";
 }
@@ -40,7 +44,9 @@ export function isFunctionExpression(node: ESTree.Node): node is ESTree.Function
 export function isVariableDeclarator(node: ESTree.Node): node is ESTree.VariableDeclarator {
   return node.type === "VariableDeclarator";
 }
-
+export function isVariableDeclaration(node: ESTree.Node): node is ESTree.VariableDeclaration {
+  return node.type === "VariableDeclaration";
+}
 export function isBinding(node: ESTree.Node, parentNode: ESTree.Node, grandParentNode: ESTree.Node | undefined): boolean {
   if (
     grandParentNode &&
@@ -52,17 +58,15 @@ export function isBinding(node: ESTree.Node, parentNode: ESTree.Node, grandParen
   }
 
   const keys: string[] = bindingIdentifiersKeys[parentNode.type] ?? [];
-  if (keys) {
-    for (let i = 0; i < keys.length; i++) {
-      const key = keys[i];
-      const val =
-        // @ts-expect-error key must present in parent
-        parentNode[key];
-      if (Array.isArray(val)) {
-        if (val.indexOf(node) >= 0) return true;
-      } else {
-        if (val === node) return true;
-      }
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const val =
+      // @ts-expect-error key must present in parent
+      parentNode[key];
+    if (Array.isArray(val)) {
+      if (val.indexOf(node) >= 0) return true;
+    } else {
+      if (val === node) return true;
     }
   }
 

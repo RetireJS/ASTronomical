@@ -423,7 +423,7 @@ function createQuerier() {
   }
 
   function beginHandle<T extends Record<string, QNode>>(queries: T, path: ASTNode) : Record<keyof T, Result[]> {
-    const rootPath: NodePath = createNodePath(path, undefined, undefined, undefined);
+    const rootPath: NodePath = createNodePath(path, undefined, undefined, undefined, undefined);
     return travHandle(queries, rootPath);
   }
   return {
