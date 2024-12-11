@@ -1,53 +1,53 @@
 import { ESTree } from "meriyah";
-import { ASTNode, NodePath } from "./traverse";
+import { ASTNode, NodePath } from ".";
 import { PrimitiveValue } from ".";
 
-export function isNode(candidate: unknown) : candidate is ASTNode {
+export const isNode = (candidate: unknown) : candidate is ASTNode => {
   return typeof candidate === "object" && candidate != null && "type" in candidate;
 }
 
-export function isNodePath(candidate: unknown) : candidate is NodePath {
+export const isNodePath = (candidate: unknown) : candidate is NodePath => {
   return typeof candidate === "object" && candidate != null && "node" in candidate;
 }
 
-export function isLiteral(candidate: unknown) : candidate is ESTree.Literal {
+export const isLiteral = (candidate: unknown) : candidate is ESTree.Literal => {
   return isNode(candidate) && candidate.type === "Literal";
 }
 
-export function isPrimitive(value: unknown) : value is PrimitiveValue {
+export const isPrimitive = (value: unknown) : value is PrimitiveValue => {
   return typeof value == "string" || typeof value == "number" || typeof value == "boolean";
 }
 
-export function isUpdateExpression(value: unknown) : value is ESTree.UpdateExpression {
+export const isUpdateExpression = (value: unknown) : value is ESTree.UpdateExpression => {
   return isNode(value) && value.type === "UpdateExpression";
 }
 
-export function isAssignmentExpression(node: ESTree.Node): node is ESTree.AssignmentExpression {
+export const isAssignmentExpression = (node: ESTree.Node): node is ESTree.AssignmentExpression => {
   return node.type === "AssignmentExpression";
 }
 
-export function isMemberExpression(node: ESTree.Node): node is ESTree.MemberExpression {
+export const isMemberExpression = (node: ESTree.Node): node is ESTree.MemberExpression => {
   return node.type === "MemberExpression";
 }
 
-export function isIdentifier(node: ESTree.Node): node is ESTree.Identifier {
+export const isIdentifier = (node: ESTree.Node): node is ESTree.Identifier => {
   return node.type === "Identifier";
 }
 
-export function isFunctionDeclaration(node: ESTree.Node): node is ESTree.FunctionDeclaration {
+export const isFunctionDeclaration = (node: ESTree.Node): node is ESTree.FunctionDeclaration => {
   return node.type === "FunctionDeclaration";
 }
-export function isFunctionExpression(node: ESTree.Node): node is ESTree.FunctionExpression {
+export const isFunctionExpression = (node: ESTree.Node): node is ESTree.FunctionExpression => {
   return node.type === "FunctionExpression";
 }
 
-export function isVariableDeclarator(node: ESTree.Node): node is ESTree.VariableDeclarator {
+export const isVariableDeclarator = (node: ESTree.Node): node is ESTree.VariableDeclarator => {
   return node.type === "VariableDeclarator";
 }
-export function isVariableDeclaration(node: ESTree.Node): node is ESTree.VariableDeclaration {
+export const isVariableDeclaration = (node: ESTree.Node): node is ESTree.VariableDeclaration => {
   return node.type === "VariableDeclaration";
 }
-export function isBinding(node: ESTree.Node, parentNode: ESTree.Node, grandParentNode: ESTree.Node | undefined): boolean {
+export const isBinding = (node: ESTree.Node, parentNode: ESTree.Node, grandParentNode: ESTree.Node | undefined): boolean => {
   if (
     grandParentNode &&
     node.type === "Identifier" &&

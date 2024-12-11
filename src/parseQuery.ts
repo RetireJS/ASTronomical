@@ -4,10 +4,10 @@ import { VISITOR_KEYS } from "./nodeutils";
 const debugLogEnabled = false;
 
 const log = {
-  debug: (...args: unknown[]) => {
+  debug: debugLogEnabled ? (...args: unknown[]) => {
     if (debugLogEnabled) console.debug(...args);
-  }
-}
+  } : () => {}
+};
 
 const supportedIdentifiers: Record<string, keyof typeof VISITOR_KEYS> = Object.fromEntries(Object.keys(VISITOR_KEYS).map(k => [k, k as keyof typeof VISITOR_KEYS]));
 

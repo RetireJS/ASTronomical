@@ -1,15 +1,16 @@
-import createTraverser, {  ASTNode, NodePath } from "./traverse";
 import { FunctionCall, parse, QNode } from "./parseQuery";
 import { parseScript } from "meriyah";
-import { isIdentifier, isNodePath, isPrimitive } from "./nodeutils";
+import { isNodePath, VISITOR_KEYS, isAssignmentExpression, isBinding, isExportSpecifier, isFunctionDeclaration, isFunctionExpression, isIdentifier, isMemberExpression, isNode, isPrimitive, isScopable, isScope, isUpdateExpression, isVariableDeclaration, isVariableDeclarator } from "./nodeutils";
+import { ESTree } from "meriyah";
+import { isDefined, toArray } from "./utils";
+
 
 const debugLogEnabled = false;
-
 const log = {
-  debug: (...args: unknown[]) => {
-    if (debugLogEnabled) console.debug(...args.map( x => typeof(x) == "object" && x != null && "valueOf" in x ? x.valueOf() : x ));
-  }
-}
+  debug: debugLogEnabled ? (...args: unknown[]) => {
+    if (debugLogEnabled) console.debug(...args);
+  } : () => {}
+};
 
 export const functions = {
   "join": {
@@ -47,10 +48,10 @@ export const functions = {
   }
 
 }
-const functionNames = Object.keys(functions);
+const functionNames = new Set(Object.keys(functions));
 export type AvailableFunction = keyof typeof functions;
 export function isAvailableFunction(name: string) : name is AvailableFunction {
-  return functionNames.includes(name);
+  return functionNames.has(name);
 }
 
 
@@ -93,6 +94,7 @@ type FunctionCallResult = {
 }
 
 function breadCrumb(path: NodePath) {
+  if (!debugLogEnabled) return "";
   return { //Using the toString trick here to avoid calculating the breadcrumb if debug logging is off
     valueOf() : string {
       if (path.parentPath == undefined) return "@" + path.node.type;
@@ -320,8 +322,19 @@ function createQuerier() {
   }
 
   function addResultIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
-    const filters = state.filters[state.depth].filter(f => f.node == path.node && f.qNode == fnode.node);
-    const matchingFilters = filters.filter(f => evaluateFilter(f.filter, path).length > 0);
+    const filters = [];
+    for (const f of state.filters[state.depth]) {
+      if (f.node == path.node && f.qNode == fnode.node) {
+        filters.push(f);
+      }
+    }
+    
+    const matchingFilters = [];
+    for (const f of filters) {
+      if (evaluateFilter(f.filter, path).length > 0) {
+        matchingFilters.push(f);
+      }
+    }
     log.debug("RESULT MATCH", fnode.node.value, breadCrumb(path), filters.length, matchingFilters.length);
     if (filters.length > 0 && matchingFilters.length == 0) return;
 
@@ -382,35 +395,44 @@ function createQuerier() {
       matches: [[]],
       functionCalls: [[]]
     };
-    Object.entries(queries).forEach(([name, node]) => {
+
+    for (const [name, node] of Object.entries(queries)) {
       createFNodeAndAddToState(node, results[name], state);
-    });
+    }
     state.child[state.depth+1].forEach(fnode => addPrimitiveAttributeIfMatch(fnode, root));
     state.descendant.slice(0, state.depth+1).forEach(fnodes => fnodes.forEach(fnode => addPrimitiveAttributeIfMatch(fnode, root)));
 
     traverse(root.node, {
       enter(path, state) {
-        log.debug("ENTER", breadCrumb(path));
+        //log.debug("ENTER", breadCrumb(path));
         state.depth++;
         state.child.push([]);
         state.descendant.push([]);
         state.filters.push([]);
         state.matches.push([]);
         state.functionCalls.push([]);
-        state.child[state.depth].forEach(fnode => addIfTokenMatch(fnode, path, state));
-        state.descendant.slice(0, state.depth+1).forEach(fnodes => 
-          fnodes.forEach(fnode => addIfTokenMatch(fnode, path, state))
-        );
+        for (const fnode of state.child[state.depth]) {
+          addIfTokenMatch(fnode, path, state);
+        }
+        for (const fnodes of state.descendant.slice(0, state.depth + 1)) {
+          for (const fnode of fnodes) {
+            addIfTokenMatch(fnode, path, state);
+          }
+        }
       },
       exit(path, state) {
         log.debug("EXIT", breadCrumb(path));
         // Check for attributes as not all attributes are visited
         state.child[state.depth +1].forEach(fnode => addPrimitiveAttributeIfMatch(fnode, path));
-        state.descendant.forEach(fnodes => 
-          fnodes.forEach(fnode => addPrimitiveAttributeIfMatch(fnode, path))
-        );
+        for (const fnodes of state.descendant) {
+          for (const fnode of fnodes) {
+            addPrimitiveAttributeIfMatch(fnode, path);
+          }
+        }
 
-        state.matches[state.depth].forEach(([fNode, path]) => addResultIfTokenMatch(fNode, path, state));
+        for (const [fNode, path] of state.matches[state.depth]) {
+          addResultIfTokenMatch(fNode, path, state);
+        }
         state.depth--;
         state.child.pop();
         state.descendant.pop();
@@ -465,5 +487,299 @@ export function parseSource(source: string) : ASTNode {
     return parseScript(source, { module: true, next: true, specDeviation:  true});
   } catch(e) {
     return parseScript(source, { module: false, next: true, specDeviation:  true});
+  }
+}
+
+
+
+export type Binding = {
+  path: NodePath;
+}
+
+export type Scope = {
+  bindings: Record<string, Binding>;
+  parentScopeId?: number;
+  id: number;
+};
+
+const scopes = new Map<number, Scope | number>(); 
+
+export type ASTNode = ESTree.Node & {
+  extra?: {
+    scopeId?: number;
+    functionScopeId?: number;
+    nodePath?: NodePath;
+  }
+};
+
+export type NodePath = {
+  node: ASTNode;
+  key?: string;
+  parentPath?: NodePath;
+  parentKey?: string;
+  scopeId: number;
+  functionScopeId: number;
+};
+
+type Visitor<T> = {
+  enter: (path: NodePath, state: T) => void;
+  exit: (path: NodePath, state: T) => void;
+}
+
+export default function createTraverser() {
+  let scopeIdCounter = 0;
+  let removedScopes = 0;
+  const nodePathsCreated: Record<string, number> = {}
+
+  function createScope(parentScopeId?: number): number {
+    const id = scopeIdCounter++;
+    if (parentScopeId != undefined) {
+      scopes.set(id, parentScopeId ?? -1);
+    }
+    return id;
+  }
+
+  function getBinding(scopeId: number, name: string): Binding | undefined {
+    let currentScope = scopes.get(scopeId);
+  
+    while (currentScope !== undefined) {
+      if (typeof currentScope !== "number") {
+        // Full scope: Check for binding
+        if (currentScope.bindings[name]) {
+          return currentScope.bindings[name];
+        }
+        // Move to parent scope
+        if (currentScope.parentScopeId === -1) break; // No parent scope
+        currentScope = scopes.get(currentScope.parentScopeId!);
+      } else {
+        // Lightweight scope: Retrieve parent scope
+        if (currentScope === -1 || currentScope == undefined) break; // No parent scope
+        currentScope = scopes.get(currentScope);
+      }
+    }
+  
+    return undefined; // Binding not found
+  }
+  
+
+
+  function setBinding(scopeId: number, name: string, binding: Binding) {
+    let scope = scopes.get(scopeId);
+  
+    if (typeof scope === "number" || scope === undefined) {
+      // Upgrade the lightweight scope to a full scope
+      scope = { bindings: {}, id: scopeId, parentScopeId: scope };
+      scopes.set(scopeId, scope);
+    }
+  
+    if (scope && typeof scope !== "number") {
+      scope.bindings[name] = binding;
+    }
+  }
+
+  let pathsCreated = 0;
+
+  function getChildren(key: string, path: NodePath) : NodePath[] {
+      if (key in path.node) {
+        const r = (path.node as unknown as Record<string, unknown>)[key];
+        if (Array.isArray(r)) {
+          return r.map((n, i) => createNodePath(n, i, key, path.scopeId, path.functionScopeId, path));
+        } else if (r != undefined) {
+          return [createNodePath(r as ASTNode, key, key, path.scopeId, path.functionScopeId, path)];
+        }
+      }
+      return [];
+  }
+  function getPrimitiveChildren(key: string, path: NodePath) : PrimitiveValue[] {
+    if (key in path.node) {
+      const r = (path.node as unknown as Record<string, unknown>)[key];
+      return toArray(r).filter(isDefined).filter(isPrimitive);
+    }
+    return [];
+  }
+  function getPrimitiveChildrenOrNodePaths(key: string, path: NodePath) : Array<PrimitiveValue | NodePath> {
+    if (key in path.node) {
+      const r = (path.node as unknown as Record<string, unknown>)[key];
+      if (Array.isArray(r)) {
+        return r.map((n, i) => 
+          isPrimitive(n) ? n : 
+          // isLiteral(n) ? n.value as PrimitiveValue :
+          createNodePath(n, i, key, path.scopeId, path.functionScopeId, path));
+      } else if (r != undefined) {
+        return [
+          isPrimitive(r) ? r : 
+          // isLiteral(r) ? r.value as PrimitiveValue :
+          createNodePath(r as ASTNode, key, key, path.scopeId, path.functionScopeId, path)
+        ];
+      }
+    }
+    return [];
+  }
+
+
+  function createNodePath(node: ASTNode, key: string | undefined | number, parentKey: string | undefined, scopeId: number | undefined, functionScopeId: number | undefined, nodePath?: NodePath) : NodePath {
+    if (node.extra?.nodePath) {
+      const path = node.extra.nodePath;
+      if (nodePath && isExportSpecifier(nodePath.node) && key == "exported" && path.key == "local") {
+        //Special handling for "export { someName }" as id is both local and exported
+        path.key = "exported"; 
+        path.parentPath = nodePath;
+        return path;
+      }
+      if (key != undefined) path.key = typeof(key) == "number" ? key.toString() : key;
+      if (parentKey != undefined) path.parentKey = parentKey;
+      if (nodePath != undefined) path.parentPath = nodePath;
+      
+      return path;
+    }
+
+    const finalScope: number = ((node.extra && node.extra.scopeId != undefined) ? node.extra.scopeId : scopeId) ?? createScope();
+    const finalFScope: number = ((node.extra && node.extra.functionScopeId != undefined) ? node.extra.functionScopeId : functionScopeId) ?? finalScope;
+    const path: NodePath = {
+      node,
+      scopeId: finalScope,
+      functionScopeId: finalFScope,
+      parentPath: nodePath,
+      key: typeof(key) == "number" ? key.toString() : key,
+      parentKey
+    }
+    if (isNode(node)) {
+      node.extra = node.extra ?? {};
+      node.extra.nodePath = path;
+      Object.defineProperty(node.extra, "nodePath", { enumerable: false });
+    }
+    nodePathsCreated[node.type] = (nodePathsCreated[node.type] ?? 0) + 1;
+    pathsCreated++;
+    return path;
+  }
+
+
+
+
+  function registerBinding(stack: ASTNode[], scopeId: number, functionScopeId: number, key: string | number, parentKey: string) {
+    //console.log("x registerBinding?", isIdentifier(node) ? node.name : node.type, parentNode.type, grandParentNode?.type, scopeId, isBinding(node, parentNode, grandParentNode));
+    const node = stack[stack.length - 1];
+    if (!isIdentifier(node)) return;
+    const parentNode = stack[stack.length - 2];
+    if (isAssignmentExpression(parentNode) || isMemberExpression(parentNode) || isUpdateExpression(parentNode) || isExportSpecifier(parentNode)) return;
+    const grandParentNode = stack[stack.length - 3];
+    if (!isBinding(node, parentNode, grandParentNode)) return;
+
+    if (key == "id" && !isVariableDeclarator(parentNode)) {
+      setBinding(functionScopeId, node.name, { path: createNodePath(node, undefined, undefined, scopeId, functionScopeId) });
+      return;
+    }
+    if (isVariableDeclarator(parentNode) && isVariableDeclaration(grandParentNode)) {
+      if (grandParentNode.kind == "var") {
+        setBinding(functionScopeId, node.name, { path: createNodePath(parentNode, undefined, undefined, scopeId, functionScopeId) });
+        return;
+      } else {
+        setBinding(scopeId, node.name, { path: createNodePath(parentNode, undefined, undefined, scopeId, functionScopeId) }); 
+        return;
+      }
+    }
+    
+    if (isScope(node, parentNode)) {  
+      setBinding(scopeId, node.name, { path: createNodePath(node, key, parentKey, scopeId, functionScopeId) });
+    } /*else {
+      console.log(node.type, parentNode.type, grandParentNode?.type);
+    }*/
+  }
+
+
+
+  let bindingNodesVisited = 0;
+  function registerBindings(stack: ASTNode[], scopeId: number, functionScopeId: number) {
+    const node = stack[stack.length - 1];
+    if (!isNode(node)) return
+    if (node.extra?.scopeId != undefined) return;
+    node.extra = node.extra ?? {};
+    node.extra.scopeId = scopeId;
+    bindingNodesVisited++;
+    const keys = VISITOR_KEYS[node.type];
+    if (keys.length == 0) return;
+
+    let childScopeId = scopeId;
+    if (isScopable(node)) {
+      childScopeId = createScope(scopeId);
+    }
+    for (const key of keys) {
+      const childNodes = node[key as keyof ASTNode];
+      const children = toArray(childNodes).filter(isDefined);
+      for (const [i, child] of children.entries()) {
+        if (!isNode(child)) continue;
+        const f = key === "body" && (isFunctionDeclaration(node) || isFunctionExpression(node)) ? childScopeId : functionScopeId;
+        stack.push(child);
+        if (isIdentifier(child)) {
+          const k = Array.isArray(childNodes) ? i : key;
+          registerBinding(stack, childScopeId, f, k, key);
+        } else {
+          registerBindings(stack, childScopeId, f);
+        }
+        stack.pop();
+      }
+    }
+    if (childScopeId != scopeId && typeof scopes.get(childScopeId) == "number") { // Scope has not been populated
+      scopes.set(childScopeId, scopes.get(scopeId)!);
+      removedScopes++;
+    }
+  }
+
+  function traverseInner<T>(
+    node: ASTNode,
+    visitor: Visitor<T>,
+    scopeId: number | undefined,
+    functionScopeId: number | undefined,
+    state: T, 
+    path?: NodePath
+    ) {
+      const nodePath = path ?? createNodePath(node, undefined, undefined, scopeId, functionScopeId);
+      const keys = VISITOR_KEYS[node.type] ?? [];
+      
+      if (nodePath.parentPath) registerBindings([nodePath.parentPath.parentPath?.node, nodePath.parentPath.node, nodePath.node].filter(isDefined), nodePath.scopeId, nodePath.functionScopeId);
+
+      for (const key of keys) {
+        const childNodes = node[key as keyof ASTNode];
+        const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
+        const nodePaths: NodePath[] = [];
+        for (const [i, child] of children.entries()) {
+          if (isNode(child)) {
+            const childPath = createNodePath(child, Array.isArray(childNodes) ? i : key, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
+            nodePaths.push(childPath);
+          }
+        }
+        for (const childPath of nodePaths) {
+          visitor.enter(childPath, state);
+          traverseInner(childPath.node, visitor, nodePath.scopeId, nodePath.functionScopeId, state, childPath);
+          visitor.exit(childPath, state);
+        }
+      }
+  }
+
+  const sOut: number[] = [];
+
+  function traverse<T>(  node: ASTNode,
+    visitor: Visitor<T>,
+    scopeId: number | undefined, 
+    state: T, 
+    path?: NodePath) {
+    const fscope = path?.functionScopeId ?? node.extra?.functionScopeId ?? scopeId;
+    traverseInner(node, visitor, scopeId, fscope, state, path);
+    if (!sOut.includes(scopeIdCounter)) {
+      log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated, bindingNodesVisited);
+      sOut.push(scopeIdCounter);
+      const k = Object.fromEntries(Object.entries(nodePathsCreated).sort((a, b) => a[1] - b[1]));
+      log.debug("Node paths created", k);
+    }
+
+
+  }
+  return {
+    traverse,
+    createNodePath,
+    getChildren,
+    getPrimitiveChildren,
+    getPrimitiveChildrenOrNodePaths,
+    getBinding
   }
 }
