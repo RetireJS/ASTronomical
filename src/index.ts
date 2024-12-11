@@ -300,7 +300,6 @@ function createQuerier() {
     return value != undefined && value != null;
   }
   let subQueryCounter = 0;
-  let memoHits = 0;
   const memo = new Map<QNode, Map<NodePath | PrimitiveValue, Result[]>>();
 
   function resolveDirectly(node: QNode, path: NodePath) : Result[] {
@@ -337,7 +336,6 @@ function createQuerier() {
     for (const path of paths) {
       if (isNodePath(path)) {
         if (memo.has(startNode) && memo.get(startNode)!.has(path)) {
-          memoHits++;
           result.push(...memo.get(startNode)!.get(path)!);
         } else {
           const subQueryKey = "subquery-" + subQueryCounter++;
