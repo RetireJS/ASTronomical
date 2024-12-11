@@ -33,7 +33,7 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "meriyah": "^4.3.9"
+    "meriyah": "^6.0.3"
   },
   "files": [
     "lib/**/*"

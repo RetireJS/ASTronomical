@@ -159,6 +159,7 @@ export const VISITOR_KEYS: Record<ESTree.Node["type"], string[]> = {
   FunctionExpression: ["id", "params", "body"],
   Identifier: [],
   IfStatement: ["test", "consequent", "alternate"],
+  ImportAttribute: ["key", "value"],
   ImportDeclaration: ["specifiers", "source"],
   ImportDefaultSpecifier: ["local"],
   ImportNamespaceSpecifier: ["local"],

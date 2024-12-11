@@ -519,9 +519,9 @@ export function multiQuery<T extends Record<string, string>>(code: string | ASTN
 
 export function parseSource(source: string) : ASTNode {
   try {
-    return parseScript(source, { module: true, next: true, specDeviation:  true});
+    return parseScript(source, { module: true, next: true });
   } catch(e) {
-    return parseScript(source, { module: false, next: true, specDeviation:  true});
+    return parseScript(source, { module: false, next: true });
   }
 }
 
