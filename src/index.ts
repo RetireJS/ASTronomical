@@ -70,6 +70,7 @@ type State = {
   child: FNode[][];
   descendant: FNode[][];
   filters: FilterResult[][];
+  filtersMap: Array<Map<QNode, FilterResult[]>>;
   matches: [FNode, NodePath][][];
   functionCalls: FunctionCallResult[][];
 }
@@ -179,7 +180,14 @@ function createQuerier() {
     if (fnode.node.filter) {
       const filter = createFilter(fnode.node.filter, []);
       const filteredResult: Array<Result> = [];
-      state.filters[state.depth].push({ filter: filter, qNode: fnode.node, node: path.node, result: filteredResult });
+      const f = { filter: filter, qNode: fnode.node, node: path.node, result: filteredResult };
+      state.filters[state.depth].push(f);
+      let fmap = state.filtersMap[state.depth].get(fnode.node);
+      if (!fmap) {
+        fmap = [];
+        state.filtersMap[state.depth].set(fnode.node, fmap);
+      }
+      fmap.push(f);
       addFilterChildrenToState(filter, state);
       const child = fnode.node.child;
       if (child) {
@@ -233,23 +241,31 @@ function createQuerier() {
     if ("type" in filter) {
       if (filter.type == "and") {
         const left = evaluateFilter(filter.left, path);
-        if (left.length == 0) return [];
-        return evaluateFilter(filter.right, path);
+        if (left.length == 0) {
+          return [];
+        }
+        const r = evaluateFilter(filter.right, path);
+        return r;
       }
       if (filter.type == "or") {
         const left = evaluateFilter(filter.left, path);
-        if (left.length > 0) return left;
-        return evaluateFilter(filter.right, path);
+        if (left.length > 0) {
+          return left;
+        }
+        const r = evaluateFilter(filter.right, path);
+        return r;
       }
       if (filter.type == "equals") {
         const left = evaluateFilter(filter.left, path);
         const right = evaluateFilter(filter.right, path);
-        return left.filter(x => right.includes(x));
+        const r = left.filter(x => right.includes(x));
+        return r;
       }
       throw new Error("Unknown filter type: " + filter.type);
     }
     if (filter.node.type == "parent") {
-      return resolveFilterWithParent(filter.node, path);
+      const r = resolveFilterWithParent(filter.node, path);
+      return r;
     }
     return filter.result;
   }
@@ -284,6 +300,9 @@ function createQuerier() {
     return value != undefined && value != null;
   }
   let subQueryCounter = 0;
+  
+  const memo = new Map<QNode, Map<NodePath | PrimitiveValue, Result[]>>();
+
   function resolveDirectly(node: QNode, path: NodePath) : Result[] {
     let startNode: QNode = node;
     const startPath = path;
@@ -313,30 +332,44 @@ function createQuerier() {
       startNode = startNode.child;
     }
     //log.debug("DIRECT TRAV RESOLVE", startNode, paths.map(p => breadCrumb(p)));
-    const result = paths.filter(isNodePath).flatMap(path => {
-      const subQueryKey = "subquery-" + subQueryCounter++;
-      return travHandle({[subQueryKey]:startNode}, path)[subQueryKey];
-    });
+    const result = [];
+    //console.log(paths.length, subQueryCounter);
+    for (const path of paths) {
+      if (isNodePath(path)) {
+        if (memo.has(startNode) && memo.get(startNode)!.has(path)) {
+          result.push(...memo.get(startNode)!.get(path)!);
+        } else {
+          const subQueryKey = "subquery-" + subQueryCounter++;
+          const subQueryResult = travHandle({ [subQueryKey]: startNode }, path)[subQueryKey];
+          if (!memo.has(startNode)) memo.set(startNode, new Map());
+          memo.get(startNode)?.set(path, subQueryResult);
+          result.push(...subQueryResult);  
+        }
+      }
+    }
     log.debug("DIRECT TRAV RESOLVE RESULT", result);
     return result;
   }
 
   function addResultIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
+    const matchingFilters = [];
+    //console.log("FILTERS", state.filters[state.depth].length, state.filtersMap[state.depth].get(fnode.node)?.length);
     const filters = [];
-    for (const f of state.filters[state.depth]) {
-      if (f.node == path.node && f.qNode == fnode.node) {
+    const nodeFilters = state.filtersMap[state.depth].get(fnode.node);
+    if (nodeFilters) {
+      for (const f of nodeFilters) {
+        if (f.qNode !== fnode.node) continue;
+        if (f.node !== path.node) continue;
         filters.push(f);
       }
-    }
-    
-    const matchingFilters = [];
-    for (const f of filters) {
-      if (evaluateFilter(f.filter, path).length > 0) {
-        matchingFilters.push(f);
+      
+      for (const f of filters) {
+        if (evaluateFilter(f.filter, path).length > 0) {
+          matchingFilters.push(f);
+        }
       }
+      if (filters.length > 0 && matchingFilters.length == 0) return;
     }
-    log.debug("RESULT MATCH", fnode.node.value, breadCrumb(path), filters.length, matchingFilters.length);
-    if (filters.length > 0 && matchingFilters.length == 0) return;
 
     if (fnode.node.resolve) {
       const binding = resolveBinding(path);
@@ -392,6 +425,7 @@ function createQuerier() {
       child: [[],[]],
       descendant: [[],[]],
       filters: [[],[]],
+      filtersMap: [new Map(), new Map()],
       matches: [[]],
       functionCalls: [[]]
     };
@@ -409,6 +443,7 @@ function createQuerier() {
         state.child.push([]);
         state.descendant.push([]);
         state.filters.push([]);
+        state.filtersMap.push(new Map());
         state.matches.push([]);
         state.functionCalls.push([]);
         for (const fnode of state.child[state.depth]) {
@@ -429,7 +464,6 @@ function createQuerier() {
             addPrimitiveAttributeIfMatch(fnode, path);
           }
         }
-
         for (const [fNode, path] of state.matches[state.depth]) {
           addResultIfTokenMatch(fNode, path, state);
         }
@@ -437,6 +471,7 @@ function createQuerier() {
         state.child.pop();
         state.descendant.pop();
         state.filters.pop();
+        state.filtersMap.pop();
         state.matches.pop();
         state.functionCalls.pop();
       }
@@ -446,7 +481,8 @@ function createQuerier() {
 
   function beginHandle<T extends Record<string, QNode>>(queries: T, path: ASTNode) : Record<keyof T, Result[]> {
     const rootPath: NodePath = createNodePath(path, undefined, undefined, undefined, undefined);
-    return travHandle(queries, rootPath);
+    const r = travHandle(queries, rootPath);
+    return r;
   }
   return {
     beginHandle
