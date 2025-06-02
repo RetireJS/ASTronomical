@@ -6,11 +6,12 @@ import { isDefined, toArray } from "./utils";
 
 
 const debugLogEnabled = false;
-const log = {
-  debug: debugLogEnabled ? (...args: unknown[]) => {
-    if (debugLogEnabled) console.debug(...args);
-  } : () => {}
-};
+
+const log = debugLogEnabled ? {
+  debug: (...args: unknown[]) => {
+    console.debug(...args);
+  }
+} : undefined;
 
 export const functions = {
   "join": {
@@ -139,18 +140,18 @@ function createQuerier() {
       addFilterChildrenToState(filter.right, state);
     } else if ("node" in filter) {
       if (filter.node.type == "child") {
-        log.debug("ADDING FILTER CHILD", filter.node);
+        log?.debug("ADDING FILTER CHILD", filter.node);
         state.child[state.depth+1].push(filter);
       }
       if (filter.node.type == "descendant") {
-        log.debug("ADDING FILTER DESCENDANT", filter.node);
+        log?.debug("ADDING FILTER DESCENDANT", filter.node);
         state.descendant[state.depth+1].push(filter);
       }
     }
   }
 
   function createFNodeAndAddToState(token: QNode, result: Array<Result>, state: State) : FNode {
-    log.debug("ADDING FNODE", token);
+    log?.debug("ADDING FNODE", token);
     const fnode = createFNode(token, result);
     if (token.type == "child") {
       state.child[state.depth+1].push(fnode);
@@ -163,14 +164,14 @@ function createQuerier() {
   function isMatch(fnode: FNode, path: NodePath) : boolean {
     if (fnode.node.attribute) {
       const m = fnode.node.value == path.parentKey || fnode.node.value == path.key
-      if (m) log.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
+      if (m) log?.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
       return m;
     }
     if (fnode.node.value == "*") {
       return true;
     }
     const m = fnode.node.value == path.node.type
-    if (m) log.debug("NODE MATCH", fnode.node.value, breadCrumb(path));
+    if (m) log?.debug("NODE MATCH", fnode.node.value, breadCrumb(path));
     return m;
   }
 
@@ -232,12 +233,12 @@ function createQuerier() {
     if (!Object.hasOwn(path.node, fnode.node.value)) return;
     const nodes = getPrimitiveChildren(fnode.node.value, path);
     if (nodes.length == 0) return;
-    log.debug("PRIMITIVE", fnode.node.value, nodes);
+    log?.debug("PRIMITIVE", fnode.node.value, nodes);
     fnode.result.push(...nodes);
   }
 
   function evaluateFilter(filter: FilterNode, path: NodePath) : Result[] {
-    log.debug("EVALUATING FILTER", filter, breadCrumb(path));
+    log?.debug("EVALUATING FILTER", filter, breadCrumb(path));
     if ("type" in filter) {
       if (filter.type == "and") {
         const left = evaluateFilter(filter.left, path);
@@ -273,13 +274,13 @@ function createQuerier() {
 
   function resolveBinding(path: NodePath) : NodePath | undefined {
     if (!isIdentifier(path.node)) return undefined;
-    log.debug("RESOLVING BINDING FOR ", path.node);
+    log?.debug("RESOLVING BINDING FOR ", path.node);
     const name = path.node.name;
     if (name == undefined || typeof name != "string") return undefined;
     //const binding = path.scope.getBinding(name);
     const binding = getBinding(path.scopeId, name);
     if (!binding) return undefined;
-    log.debug("THIS IS THE BINDING", binding);
+    log?.debug("THIS IS THE BINDING", binding);
     return binding.path;
   }
 
@@ -289,7 +290,7 @@ function createQuerier() {
     while(startNode.type == "parent") {
       if (!startNode.child) throw new Error("Parent filter must have child");
       if (!startPath.parentPath) return [];
-      log.debug("STEP OUT", startNode, breadCrumb(startPath));
+      log?.debug("STEP OUT", startNode, breadCrumb(startPath));
       startNode = startNode.child;
       startPath = startPath.parentPath;
     }
@@ -309,9 +310,9 @@ function createQuerier() {
     while(startNode.attribute && startNode.type == "child") {
       const lookup = startNode.value;
       if (!lookup) throw new Error("Selector must have a value");
-      //log.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
+      //log?.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
       const nodes = paths.filter(isNodePath).map(n => getPrimitiveChildrenOrNodePaths(lookup, n)).flat();
-      //log.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node));
+      //log?.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node));
       //console.log(nodes);
       if (nodes.length == 0) return [];
       paths = nodes;
@@ -330,7 +331,7 @@ function createQuerier() {
       }
       startNode = startNode.child;
     }
-    //log.debug("DIRECT TRAV RESOLVE", startNode, paths.map(p => breadCrumb(p)));
+    //log?.debug("DIRECT TRAV RESOLVE", startNode, paths.map(p => breadCrumb(p)));
     const result = [];
     //console.log(paths.length, subQueryCounter);
     for (const path of paths) {
@@ -346,7 +347,7 @@ function createQuerier() {
         }
       }
     }
-    log.debug("DIRECT TRAV RESOLVE RESULT", result);
+    log?.debug("DIRECT TRAV RESOLVE RESULT", result);
     return result;
   }
 
@@ -397,7 +398,7 @@ function createQuerier() {
       if (!functionCallResult) throw new Error("Did not find expected function call for " + fnode.node.child.function);
       resolveFunctionCalls(fnode, functionCallResult, path, state);
     } else if (matchingFilters.length > 0) {
-      log.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
+      log?.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
       fnode.result.push(...matchingFilters.flatMap(f => f.result));
     } 
   }
@@ -413,7 +414,7 @@ function createQuerier() {
       }
     }
     const functionResult = functions[functionCallResult.functionCall.function].fn(parameterResults);
-    log.debug("PARAMETER RESULTS", functionCallResult.functionCall.function, parameterResults, functionResult);
+    log?.debug("PARAMETER RESULTS", functionCallResult.functionCall.function, parameterResults, functionResult);
     fnode.result.push(...functionResult);
   }
 
@@ -437,7 +438,7 @@ function createQuerier() {
 
     traverse(root.node, {
       enter(path, state) {
-        //log.debug("ENTER", breadCrumb(path));
+        //log?.debug("ENTER", breadCrumb(path));
         state.depth++;
         state.child.push([]);
         state.descendant.push([]);
@@ -455,7 +456,7 @@ function createQuerier() {
         }
       },
       exit(path, state) {
-        log.debug("EXIT", breadCrumb(path));
+        log?.debug("EXIT", breadCrumb(path));
         // Check for attributes as not all attributes are visited
         state.child[state.depth +1].forEach(fnode => addPrimitiveAttributeIfMatch(fnode, path));
         for (const fnodes of state.descendant) {
@@ -510,18 +511,19 @@ export function multiQuery<T extends Record<string, string>>(code: string | ASTN
   const queries = Object.fromEntries(Object.entries(namedQueries).map(([name, query]) => [name, parse(query)])) as Record<keyof T, QNode>;
   const querier = createQuerier();
   const result = querier.beginHandle(queries, ast);
-  log.debug("Query time: ", Date.now() - start);
+  log?.debug("Query time: ", Date.now() - start);
   if (returnAST) {
     return { ...result, __AST: ast };
   }
   return result;
 }
 
-export function parseSource(source: string) : ASTNode {
+export function parseSource(source: string, optimize: boolean = true) : ASTNode {
+  const parsingOptions = optimize ? {loc: false, ranges: false } : {loc: true, ranges: true };
   try {
-    return parseScript(source, { module: true, next: true });
+    return parseScript(source, { module: true, next: true, ...parsingOptions });
   } catch(e) {
-    return parseScript(source, { module: false, next: true });
+    return parseScript(source, { module: false, next: true, ...parsingOptions, webcompat: true });
   }
 }
 
@@ -801,10 +803,10 @@ export default function createTraverser() {
     const fscope = path?.functionScopeId ?? node.extra?.functionScopeId ?? scopeId;
     traverseInner(node, visitor, scopeId, fscope, state, path);
     if (!sOut.includes(scopeIdCounter)) {
-      log.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated, bindingNodesVisited);
+      log?.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated, bindingNodesVisited);
       sOut.push(scopeIdCounter);
       const k = Object.fromEntries(Object.entries(nodePathsCreated).sort((a, b) => a[1] - b[1]));
-      log.debug("Node paths created", k);
+      log?.debug("Node paths created", k);
     }
 
 

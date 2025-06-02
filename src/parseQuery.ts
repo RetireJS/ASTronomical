@@ -3,11 +3,11 @@ import { VISITOR_KEYS } from "./nodeutils";
 
 const debugLogEnabled = false;
 
-const log = {
-  debug: debugLogEnabled ? (...args: unknown[]) => {
-    if (debugLogEnabled) console.debug(...args);
-  } : () => {}
-};
+const log = debugLogEnabled ? {
+  debug: (...args: unknown[]) => {
+    console.debug(...args);
+  }
+} : undefined;
 
 const supportedIdentifiers: Record<string, keyof typeof VISITOR_KEYS> = Object.fromEntries(Object.keys(VISITOR_KEYS).map(k => [k, k as keyof typeof VISITOR_KEYS]));
 
@@ -192,7 +192,7 @@ export type QNode = Selector | Condition | Literal | FunctionCall ;
 
 
 function buildFilter(tokens: Token[]) : Condition | QNode {
-  log.debug("BUILD FILTER", tokens);
+  log?.debug("BUILD FILTER", tokens);
   tokens.shift();
   const p = buildTree(tokens);
   const next = tokens[0];
@@ -242,7 +242,7 @@ function buildFilter(tokens: Token[]) : Condition | QNode {
 const subNodes = ["child", "descendant"];
 
 function buildTree(tokens: Token[]) : QNode {
-  log.debug("BUILD TREE", tokens);
+  log?.debug("BUILD TREE", tokens);
   if (tokens.length == 0) throw new Error("Unexpected end of input");
   const token = tokens.shift();
   if (token == undefined) throw new Error("Unexpected end of input");
@@ -281,7 +281,7 @@ function buildTree(tokens: Token[]) : QNode {
     let filter: QNode | undefined = undefined;
     if (tokens.length > 0 && tokens[0].type == "filterBegin") {
       filter = buildFilter(tokens)
-      log.debug("FILTER", filter, tokens);
+      log?.debug("FILTER", filter, tokens);
     }
     let child : QNode | undefined = undefined;
     if (tokens.length > 0 && subNodes.includes(tokens[0].type)) {
@@ -308,7 +308,7 @@ function buildTree(tokens: Token[]) : QNode {
 }
 
 function buildFunctionCall(name: AvailableFunction, tokens: Token[]) : QNode {
-  log.debug("BUILD FUNCTION", name, tokens);
+  log?.debug("BUILD FUNCTION", name, tokens);
   const parameters: QNode[] = [];
   const next = tokens.shift();
   if (next?.type != "parametersBegin") throw new Error("Unexpected token: " + next?.type);
@@ -328,7 +328,7 @@ function buildFunctionCall(name: AvailableFunction, tokens: Token[]) : QNode {
 export function parse(input: string): QNode {
   const tokens = tokenize(input);
   const result = buildTree(tokens);
-  log.debug("RESULT", result);
+  log?.debug("RESULT", result);
   if (!result) throw new Error("No root element found");
   return result;
 }

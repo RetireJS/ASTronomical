@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.0] - 2025-06-02
+
+### Performance upgrades
+
+* Don't includeranges and loc by default - reduced memory usage
+
+
 ## [1.0.0-beta.16] - 2024-03-08
 
 ### Bugfix
