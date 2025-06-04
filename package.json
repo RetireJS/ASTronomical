@@ -1,6 +1,6 @@
 {
   "name": "astronomical",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "commonjs",
   "description": "offers a way to query a Javascript AST to find specific patterns using a syntax somewhat similar to XPath.",
   "scripts": {

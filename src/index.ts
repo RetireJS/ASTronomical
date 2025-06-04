@@ -476,12 +476,14 @@ function createQuerier() {
         state.functionCalls.pop();
       }
     }, root.scopeId, state, root);
+
     return results;
   }
 
   function beginHandle<T extends Record<string, QNode>>(queries: T, path: ASTNode) : Record<keyof T, Result[]> {
     const rootPath: NodePath = createNodePath(path, undefined, undefined, undefined, undefined);
     const r = travHandle(queries, rootPath);
+    memo.clear();
     return r;
   }
   return {
@@ -539,7 +541,6 @@ export type Scope = {
   id: number;
 };
 
-const scopes = new Map<number, Scope | number>(); 
 
 export type ASTNode = ESTree.Node & {
   extra?: {
@@ -565,6 +566,7 @@ type Visitor<T> = {
 
 export default function createTraverser() {
   let scopeIdCounter = 0;
+  const scopes = new Map<number, Scope | number>(); 
   let removedScopes = 0;
   const nodePathsCreated: Record<string, number> = {}
 
