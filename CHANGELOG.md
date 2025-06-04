@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.1] - 2025-06-04
+
+### Performance upgrades
+
+* Reduce memory
+
 ## [2.0.0] - 2025-06-02
 
 ### Performance upgrades
