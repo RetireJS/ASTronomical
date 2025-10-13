@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf lib && mkdir lib",
     "build": "npm run clean && npm run build:esm && npm run build:cjs",
-    "build:esm": "tsc && mv lib/esm/index.js lib/esm/index.mjs",
+    "build:esm": "tsc",
     "build:cjs": "tsc -p ./tsconfig.cjs.json",
     "watch": "tsc --watch",
     "check": "npm run lint && npm run typecheck",

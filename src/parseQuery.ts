@@ -11,18 +11,52 @@ const log = debugLogEnabled ? {
 
 const supportedIdentifiers: Record<string, keyof typeof VISITOR_KEYS> = Object.fromEntries(Object.keys(VISITOR_KEYS).map(k => [k, k as keyof typeof VISITOR_KEYS]));
 
+export enum TokenType {
+  IDENTIFIER,
+  WILDCARD,
+  DESCENDANT,
+  CHILD,
+  PARENT,
+  AND,
+  OR,
+  EQUALS,
+  LITERAL,
+  ATTRIBUTESELECTOR,
+  RESOLVESELECTOR,
+  BINDINGSELECTOR,
+  FILTERBEGIN,
+  FILTEREND,
+  SEPARATOR,
+  PARAMETERSBEGIN,
+  PARAMETERSEND,
+  FUNCTION 
+}
+
+export const NodeType = { 
+  PARENT : 0xf1, 
+  CHILD : 0xf2, 
+  DESCENDANT : 0xf3,
+  AND : 0xf4,
+  OR : 0xf5,
+  EQUALS : 0xf6,
+  LITERAL : 0xf7,
+  FUNCTION : 0xf8
+} as const;
+
+
+
 type Token = {
-  type: string;
+  tokenType: TokenType;
   value?: string;
 }
 type IdentifierToken = {
-  type: "identifier";
+  tokenType: TokenType.IDENTIFIER;
   value: string;
 }
 
 function isIdentifierToken(token: Token | undefined) : token is IdentifierToken {
   if (token == undefined) return false;
-  if (token.type != "identifier" && token.type != "wildcard") return false;
+  if (token.tokenType != TokenType.IDENTIFIER && token.tokenType != TokenType.WILDCARD) return false;
   if (!token.value) return false;
   if (!(token.value in supportedIdentifiers) && token.value != "*") {
     throw new Error("Unsupported identifier: " + token.value);
@@ -43,77 +77,77 @@ function isInteger(c: string) : boolean {
 
 export function tokenize(input: string) : Token[] {
   let s = 0;
-  const result = [];
+  const result = [] as Token[];
   while (s < input.length) {
     while (whitespace.includes(input[s])) s++;
     if (s >= input.length) break;
     if (input[s] == "/") {
       if (input[s+1] == "/") {
-        result.push({type: "descendant"});
+        result.push({tokenType: TokenType.DESCENDANT});
         s += 2;
         continue;
       }
-      result.push({type: "child"});
+      result.push({tokenType: TokenType.CHILD});
       s++;
       continue;
     }
     if (input[s] == ":") {
-      result.push({ type : "attributeSelector" });
+      result.push({ tokenType : TokenType.ATTRIBUTESELECTOR });
       s++;
       continue;
     }
     if (input[s] == "$" && input[s+1] == "$") {
-      result.push({ type : "resolveSelector" });
+      result.push({ tokenType : TokenType.RESOLVESELECTOR });
       s+=2;
       continue;
     }
     if (input[s] == "$") {
-      result.push({ type : "bindingSelector" });
+      result.push({ tokenType : TokenType.BINDINGSELECTOR });
       s++;
       continue;
     }
     if (input[s] == "[") {
-      result.push({ type : "filterBegin" });
+      result.push({ tokenType : TokenType.FILTERBEGIN });
       s++;
       continue;
     }
     if (input[s] == "]") {
-      result.push({ type : "filterEnd" });
+      result.push({ tokenType : TokenType.FILTEREND });
       s++;
       continue;
     }
     if (input[s] == ",") {
-      result.push({ type : "separator" });
+      result.push({ tokenType : TokenType.SEPARATOR });
       s++;
       continue;
     }
     if (input[s] == "(") {
-      result.push({ type : "parametersBegin" });
+      result.push({ tokenType : TokenType.PARAMETERSBEGIN });
       s++;
       continue;
     }
     if (input[s] == "f" && input[s+1] == "n" && input[s+2] == ":") {
-      result.push({ type : "function" });
+      result.push({ tokenType : TokenType.FUNCTION });
       s += 3;
       continue;
     }
     if (input[s] == ")") {
-      result.push({ type : "parametersEnd" });
+      result.push({ tokenType : TokenType.PARAMETERSEND });
       s++;
       continue;
     }
     if (input[s] == "&" && input[s+1] == "&") {
-      result.push({ type : "and" });
+      result.push({ tokenType : TokenType.AND });
       s += 2;
       continue;
     }
     if (input[s] == "|" && input[s+1] == "|") {
-      result.push({ type : "or" });
+      result.push({ tokenType : TokenType.OR });
       s += 2;
       continue;
     }
     if (input[s] == "=" && input[s+1] == "=") {
-      result.push({ type : "eq" });
+      result.push({ tokenType : TokenType.EQUALS });
       s += 2;
       continue;
     }
@@ -122,30 +156,30 @@ export function tokenize(input: string) : Token[] {
       const start = s;
       s++;
       while (s < input.length && input[s] != begin) s++;
-      result.push({ type: "literal", value: input.slice(start + 1, s)});
+      result.push({ tokenType: TokenType.LITERAL, value: input.slice(start + 1, s)});
       s++;
       continue;
     }
     if (input[s] == "." && input[s+1] == ".") {
-      result.push({ type: "parent"});
+      result.push({ tokenType: TokenType.PARENT});
       s += 2;
       continue;
     }
     if (input[s] == "*") {
-      result.push({ type: "wildcard", value: "*"});
+      result.push({ tokenType: TokenType.WILDCARD, value: "*"});
       s++;
       continue;
     }
     if (isCharacter(input[s])) {
       const start = s;
       while (s < input.length && isCharacter(input[s])) s++;
-      result.push({ type: "identifier", value: input.slice(start, s)});
+      result.push({ tokenType: TokenType.IDENTIFIER, value: input.slice(start, s)});
       continue;
     }
     if (isInteger(input[s])) {
       const start = s;
       while (s < input.length && isInteger(input[s])) s++;
-      result.push({ type: "literal", value: input.slice(start, s)});
+      result.push({ tokenType: TokenType.LITERAL, value: input.slice(start, s)});
       continue;
     }
     throw new Error("Unexpected token: " + input[s]);
@@ -153,7 +187,6 @@ export function tokenize(input: string) : Token[] {
   return result;
 }
 type BaseNode = {
-  type: string;
   attribute?: boolean;
   binding?: boolean;
   resolve?: boolean;
@@ -162,28 +195,31 @@ type BaseNode = {
   child?: QNode;
 }
 
+
+
+
 export type Selector = BaseNode & ({
-  type: "child" | "descendant";
+  type: typeof NodeType.CHILD | typeof NodeType.DESCENDANT;
   attribute: boolean;
   binding: boolean;
   value: string;
   resolve: boolean;
 } | {
-  type: "parent"
+  type: typeof NodeType.PARENT
 });
 
 export type Condition = BaseNode & {
-  type: "and" | "or" | "equals";
+  type: typeof NodeType.AND | typeof NodeType.OR | typeof NodeType.EQUALS;
   left: QNode;
   right: QNode;
 }
 export type Literal = BaseNode & {
-  type: "literal";
+  type: typeof NodeType.LITERAL;
   value: string;
 }
 
 export type FunctionCall = BaseNode & {
-  type: "function";
+  type: typeof NodeType.FUNCTION;
   function: AvailableFunction;
   parameters: QNode[];
 }
@@ -196,67 +232,67 @@ function buildFilter(tokens: Token[]) : Condition | QNode {
   tokens.shift();
   const p = buildTree(tokens);
   const next = tokens[0];
-  if (next.type == "and") {
+  if (next.tokenType == TokenType.AND) {
     return {
-      type: "and",
+      type: NodeType.AND,
       left: p,
       right: buildFilter(tokens)
     };
   }
-  if (next.type == "or") {
+  if (next.tokenType == TokenType.OR) {
     return {
-      type: "or",
+      type: NodeType.OR,
       left: p,
       right: buildFilter(tokens)
     }
   }
-  if (next.type == "eq") {
+  if (next.tokenType == TokenType.EQUALS) {
     const right = buildFilter(tokens);
-    if (right.type == "or" || right.type == "and") {
+    if (right.type == NodeType.OR || right.type == NodeType.AND) {
       return {
         type: right.type,
         left: {
-          type: "equals",
+          type: NodeType.EQUALS,
           left: p,
           right: right.left
         },
         right: right.right
       }
     }
-    if (right.type == "equals") throw new Error("Unexpected equals in equals");
+    if (right.type == NodeType.EQUALS) throw new Error("Unexpected equals in equals");
     return {
-      type: "equals",
+      type: NodeType.EQUALS,
       left: p,
       right: right
     }
   }
-  if (next.type == "filterEnd") {
+  if (next.tokenType == TokenType.FILTEREND) {
     tokens.shift();
     return p;
   }
-  throw new Error("Unexpected token in filter: " + next?.type);
+  throw new Error("Unexpected token in filter: " + next?.tokenType);
 }
 
 
 
-const subNodes = ["child", "descendant"];
+const subNodes = [TokenType.CHILD, TokenType.DESCENDANT];
 
 function buildTree(tokens: Token[]) : QNode {
   log?.debug("BUILD TREE", tokens);
   if (tokens.length == 0) throw new Error("Unexpected end of input");
   const token = tokens.shift();
   if (token == undefined) throw new Error("Unexpected end of input");
-  if (token.type == "parent") {
+  if (token.tokenType == TokenType.PARENT) {
     return {
-      type: "parent",
+      type: NodeType.PARENT,
       child: buildTree(tokens)
     }
   }
-  if (subNodes.includes(token.type)) {
+  if (subNodes.includes(token.tokenType)) {
     let next = tokens.shift();
-    if (next?.type == "function") {
+    if (next?.tokenType == TokenType.FUNCTION) {
       const name = tokens.shift();
-      if (name == undefined || name.type != "identifier" || name.value == undefined || typeof(name.value) != "string") throw new Error("Unexpected token: " + name?.type + ". Expecting function name");
+      if (name == undefined || name.tokenType != TokenType.IDENTIFIER || name.value == undefined || typeof(name.value) != "string") throw new Error("Unexpected token: " + name?.tokenType + ". Expecting function name");
       const value = name.value;
       if (!isAvailableFunction(value)) {
         throw new Error("Unsupported function: " + name.value);
@@ -264,32 +300,38 @@ function buildTree(tokens: Token[]) : QNode {
       return buildFunctionCall(value, tokens);
     }
 
-    if (next?.type == "parent") {
-      return { type: "parent", child: buildTree(tokens) };
+    if (next?.tokenType == TokenType.PARENT) {
+      return { type: NodeType.PARENT, child: buildTree(tokens) };
     }
     const modifiers: Token[] = [];
-    while(next && (next?.type == "attributeSelector" || next?.type == "bindingSelector" || next?.type == "resolveSelector")) {
+    while(next && (next?.tokenType == TokenType.ATTRIBUTESELECTOR || next?.tokenType == TokenType.BINDINGSELECTOR || next?.tokenType == TokenType.RESOLVESELECTOR)) {
       modifiers.push(next);
       next = tokens.shift();
     }
-    const isAttribute = modifiers.some(m => m.type == "attributeSelector");
-    const isBinding = modifiers.some(m => m.type == "bindingSelector");
-    const isResolve = modifiers.some(m => m.type == "resolveSelector");
+    const isAttribute = modifiers.some(m => m.tokenType == TokenType.ATTRIBUTESELECTOR);
+    const isBinding = modifiers.some(m => m.tokenType == TokenType.BINDINGSELECTOR);
+    const isResolve = modifiers.some(m => m.tokenType == TokenType.RESOLVESELECTOR);
     if (isResolve && isBinding) throw new Error("Cannot have both resolve and binding");
-    if (!next || !next.value || (!isAttribute && !isIdentifierToken(next))) throw new Error("Unexpected or missing token: " + next?.type);
+    if (!next || !next.value || (!isAttribute && !isIdentifierToken(next))) throw new Error("Unexpected or missing token: " + next?.tokenType);
     const identifer = next.value;
     let filter: QNode | undefined = undefined;
-    if (tokens.length > 0 && tokens[0].type == "filterBegin") {
+    if (tokens.length > 0 && tokens[0].tokenType == TokenType.FILTERBEGIN) {
       filter = buildFilter(tokens)
       log?.debug("FILTER", filter, tokens);
     }
     let child : QNode | undefined = undefined;
-    if (tokens.length > 0 && subNodes.includes(tokens[0].type)) {
+    if (tokens.length > 0 && subNodes.includes(tokens[0].tokenType)) {
       child = buildTree(tokens);
     }
     if (typeof(identifer) != "string") throw new Error("Identifier must be a string");
+    let nodeType: typeof NodeType.CHILD | typeof NodeType.DESCENDANT = NodeType.CHILD;
+    if (token.tokenType == TokenType.DESCENDANT) {
+      nodeType = NodeType.DESCENDANT;
+    } else if (token.tokenType != TokenType.CHILD) {
+      throw new Error("Unexpected token:" + token.tokenType)
+    }
     return {
-      type: token.type as "child" | "descendant",
+      type: nodeType,
       value: identifer,
       attribute: isAttribute,
       binding: isBinding,
@@ -298,28 +340,28 @@ function buildTree(tokens: Token[]) : QNode {
       child: child
     }
   }
-  if (token.type == "literal") {
+  if (token.tokenType == TokenType.LITERAL) {
     return {
-      type: "literal",
+      type: NodeType.LITERAL,
       value: token.value!
     }
   }
-  throw new Error("Unexpected token: " + token.type);
+  throw new Error("Unexpected token: " + token.tokenType);
 }
 
 function buildFunctionCall(name: AvailableFunction, tokens: Token[]) : QNode {
   log?.debug("BUILD FUNCTION", name, tokens);
   const parameters: QNode[] = [];
   const next = tokens.shift();
-  if (next?.type != "parametersBegin") throw new Error("Unexpected token: " + next?.type);
-  while (tokens.length > 0 && tokens[0].type != "parametersEnd") {
+  if (next?.tokenType != TokenType.PARAMETERSBEGIN) throw new Error("Unexpected token: " + next?.tokenType);
+  while (tokens.length > 0 && tokens[0].tokenType != TokenType.PARAMETERSEND) {
     parameters.push(buildTree(tokens));
-    if (tokens[0].type == "separator") tokens.shift();
+    if (tokens[0].tokenType == TokenType.SEPARATOR) tokens.shift();
   }
   if (tokens.length == 0) throw new Error("Unexpected end of input");
   tokens.shift();
   return {
-    type: "function",
+    type: NodeType.FUNCTION,
     function: name,
     parameters: parameters
   }

@@ -1,4 +1,4 @@
-import { FunctionCall, parse, QNode } from "./parseQuery";
+import { FunctionCall, NodeType, parse, QNode } from "./parseQuery";
 import { parseScript } from "meriyah";
 import { isNodePath, VISITOR_KEYS, isAssignmentExpression, isBinding, isExportSpecifier, isFunctionDeclaration, isFunctionExpression, isIdentifier, isMemberExpression, isNode, isPrimitive, isScopable, isScope, isUpdateExpression, isVariableDeclaration, isVariableDeclarator } from "./nodeutils";
 import { ESTree } from "meriyah";
@@ -76,7 +76,7 @@ type State = {
   functionCalls: FunctionCallResult[][];
 }
 type FilterCondition = {
-  type: "and" | "or" | "equals";
+  type: typeof NodeType.AND | typeof NodeType.OR | typeof NodeType.EQUALS;
   left: FilterNode;
   right: FilterNode;
 }
@@ -111,13 +111,13 @@ function createQuerier() {
   const { getChildren, getPrimitiveChildren, getPrimitiveChildrenOrNodePaths, getBinding, createNodePath, traverse } = traverser;
 
   function createFilter(filter: QNode, filterResult: Array<Result>) : FilterNode {
-    if (filter.type == "and" || filter.type == "or" || filter.type == "equals") {
+    if (filter.type == NodeType.AND || filter.type == NodeType.OR || filter.type == NodeType.EQUALS) {
       return {
         type: filter.type,
         left: createFilter(filter.left, []),
         right: createFilter(filter.right, [])
       };
-    } else if (filter.type == "literal") {
+    } else if (filter.type == NodeType.LITERAL) {
       const r = [ filter.value ];
       return {
         node: filter,
@@ -134,16 +134,16 @@ function createQuerier() {
     };
   }
 
-  function addFilterChildrenToState(filter: FilterNode, state: State) {
-    if ("type" in filter && (filter.type == "and" || filter.type == "or" || filter.type == "equals")) {
+  function addFilterChildrenToState(filter: FilterNode, state: State) {    
+    if ("type" in filter && (filter.type == NodeType.AND || filter.type == NodeType.OR || filter.type == NodeType.EQUALS)) {
       addFilterChildrenToState(filter.left, state);
       addFilterChildrenToState(filter.right, state);
     } else if ("node" in filter) {
-      if (filter.node.type == "child") {
+      if (filter.node.type == NodeType.CHILD) {
         log?.debug("ADDING FILTER CHILD", filter.node);
         state.child[state.depth+1].push(filter);
       }
-      if (filter.node.type == "descendant") {
+      if (filter.node.type == NodeType.DESCENDANT) {
         log?.debug("ADDING FILTER DESCENDANT", filter.node);
         state.descendant[state.depth+1].push(filter);
       }
@@ -153,9 +153,9 @@ function createQuerier() {
   function createFNodeAndAddToState(token: QNode, result: Array<Result>, state: State) : FNode {
     log?.debug("ADDING FNODE", token);
     const fnode = createFNode(token, result);
-    if (token.type == "child") {
+    if (token.type == NodeType.CHILD) {
       state.child[state.depth+1].push(fnode);
-    } else if (token.type == "descendant") {
+    } else if (token.type == NodeType.DESCENDANT) {
       state.descendant[state.depth+1].push(fnode);
     }
     return fnode;
@@ -174,7 +174,6 @@ function createQuerier() {
     if (m) log?.debug("NODE MATCH", fnode.node.value, breadCrumb(path));
     return m;
   }
-
   function addIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
     if (!isMatch(fnode, path)) return;
     state.matches[state.depth].push([fnode, path]);
@@ -192,7 +191,7 @@ function createQuerier() {
       addFilterChildrenToState(filter, state);
       const child = fnode.node.child;
       if (child) {
-        if (child.type == "function") {
+        if (child.type == NodeType.FUNCTION) {
           const fr = addFunction(fnode, child, path, state);
           state.functionCalls[state.depth].push(fr);
         } else {
@@ -201,7 +200,7 @@ function createQuerier() {
       }
     } else {
       const child = fnode.node.child;
-      if (child?.type == "function") {
+      if (child?.type == NodeType.FUNCTION) {
         const fr = addFunction(fnode, child, path, state);
         state.functionCalls[state.depth].push(fr);
       } else if (child && !fnode.node.binding && !fnode.node.resolve) {
@@ -213,10 +212,10 @@ function createQuerier() {
   function addFunction(rootNode: FNode, functionCall: FunctionCall, path: NodePath, state: State): FunctionCallResult {
     const functionNode: FunctionCallResult = { node: rootNode.node, functionCall: functionCall, parameters: [], result: [] };
     for (const param of functionCall.parameters) {
-      if (param.type == "literal") {
+      if (param.type == NodeType.LITERAL) {
         functionNode.parameters.push({ node: param, result: [param.value] });
       } else {
-        if (param.type == "function") {
+        if (param.type == NodeType.FUNCTION) {
           functionNode.parameters.push(addFunction(functionNode, param, path, state));
         } else {
           functionNode.parameters.push(createFNodeAndAddToState(param, [], state));
@@ -240,7 +239,7 @@ function createQuerier() {
   function evaluateFilter(filter: FilterNode, path: NodePath) : Result[] {
     log?.debug("EVALUATING FILTER", filter, breadCrumb(path));
     if ("type" in filter) {
-      if (filter.type == "and") {
+      if (filter.type == NodeType.AND) {
         const left = evaluateFilter(filter.left, path);
         if (left.length == 0) {
           return [];
@@ -248,7 +247,7 @@ function createQuerier() {
         const r = evaluateFilter(filter.right, path);
         return r;
       }
-      if (filter.type == "or") {
+      if (filter.type == NodeType.OR) {
         const left = evaluateFilter(filter.left, path);
         if (left.length > 0) {
           return left;
@@ -256,7 +255,7 @@ function createQuerier() {
         const r = evaluateFilter(filter.right, path);
         return r;
       }
-      if (filter.type == "equals") {
+      if (filter.type == NodeType.EQUALS) {
         const left = evaluateFilter(filter.left, path);
         const right = evaluateFilter(filter.right, path);
         const r = left.filter(x => right.includes(x));
@@ -264,7 +263,7 @@ function createQuerier() {
       }
       throw new Error("Unknown filter type: " + filter.type);
     }
-    if (filter.node.type == "parent") {
+    if (filter.node.type == NodeType.PARENT) {
       const r = resolveFilterWithParent(filter.node, path);
       return r;
     }
@@ -287,7 +286,7 @@ function createQuerier() {
   function resolveFilterWithParent(node: QNode, path: NodePath) : Result[] {
     let startNode: QNode = node;
     let startPath = path;
-    while(startNode.type == "parent") {
+    while(startNode.type == NodeType.PARENT) {
       if (!startNode.child) throw new Error("Parent filter must have child");
       if (!startPath.parentPath) return [];
       log?.debug("STEP OUT", startNode, breadCrumb(startPath));
@@ -307,13 +306,24 @@ function createQuerier() {
     let startNode: QNode = node;
     const startPath = path;
     let paths: Array<PrimitiveValue | NodePath> = [startPath];
-    while(startNode.attribute && startNode.type == "child") {
+    while(startNode.attribute && startNode.type == NodeType.CHILD) {
       const lookup = startNode.value;
       if (!lookup) throw new Error("Selector must have a value");
       //log?.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
       const nodes = paths.filter(isNodePath).map(n => getPrimitiveChildrenOrNodePaths(lookup, n)).flat();
       //log?.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node));
       //console.log(nodes);
+      /*const nodes: Array<PrimitiveValue | NodePath> = [];
+      for (const p of paths) {
+        if (!isNodePath(p)) continue;
+        const arr = getPrimitiveChildrenOrNodePaths(lookup, p);
+        for (let i = 0; i < arr.length; i++) {
+          nodes.push(arr[i]);
+        }
+      }*/
+
+
+
       if (nodes.length == 0) return [];
       paths = nodes;
       if (startNode.resolve) {
@@ -393,7 +403,7 @@ function createQuerier() {
       } 
     } else if (!fnode.node.child) {
       fnode.result.push(path.node);
-    } else if (fnode.node.child.type == "function") {
+    } else if (fnode.node.child.type == NodeType.FUNCTION) {
       const functionCallResult = state.functionCalls[state.depth].find(f => f.node == fnode.node);
       if (!functionCallResult) throw new Error("Did not find expected function call for " + fnode.node.child.function);
       resolveFunctionCalls(fnode, functionCallResult, path, state);
@@ -654,11 +664,13 @@ export default function createTraverser() {
     }
     return [];
   }
-
+  const nodePathMap = new WeakMap<ASTNode, NodePath>();
 
   function createNodePath(node: ASTNode, key: string | undefined | number, parentKey: string | undefined, scopeId: number | undefined, functionScopeId: number | undefined, nodePath?: NodePath) : NodePath {
-    if (node.extra?.nodePath) {
-      const path = node.extra.nodePath;
+    if (nodePathMap.has(node)) {
+    //if (node.extra?.nodePath) {
+      //const path = node.extra.nodePath;
+      const path = nodePathMap.get(node)!;
       if (nodePath && isExportSpecifier(nodePath.node) && key == "exported" && path.key == "local") {
         //Special handling for "export { someName }" as id is both local and exported
         path.key = "exported"; 
@@ -683,9 +695,10 @@ export default function createTraverser() {
       parentKey
     }
     if (isNode(node)) {
-      node.extra = node.extra ?? {};
-      node.extra.nodePath = path;
-      Object.defineProperty(node.extra, "nodePath", { enumerable: false });
+      //node.extra = node.extra ?? {};
+      //node.extra.nodePath = path;
+      //Object.defineProperty(node.extra, "nodePath", { enumerable: false });
+      nodePathMap.set(node, path);
     }
     nodePathsCreated[node.type] = (nodePathsCreated[node.type] ?? 0) + 1;
     pathsCreated++;
@@ -773,7 +786,7 @@ export default function createTraverser() {
     path?: NodePath
     ) {
       const nodePath = path ?? createNodePath(node, undefined, undefined, scopeId, functionScopeId);
-      const keys = VISITOR_KEYS[node.type] ?? [];
+      const keys = VISITOR_KEYS[node.type];
       
       if (nodePath.parentPath) registerBindings([nodePath.parentPath.parentPath?.node, nodePath.parentPath.node, nodePath.node].filter(isDefined), nodePath.scopeId, nodePath.functionScopeId);
 
