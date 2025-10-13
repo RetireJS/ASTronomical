@@ -296,9 +296,6 @@ function createQuerier() {
     return resolveDirectly(startNode, startPath);
   }
   
-  function isDefined<T>(value: T | undefined | null) : value is T {
-    return value != undefined && value != null;
-  }
   let subQueryCounter = 0;
   const memo = new Map<QNode, Map<NodePath | PrimitiveValue, Result[]>>();
 
@@ -310,34 +307,62 @@ function createQuerier() {
       const lookup = startNode.value;
       if (!lookup) throw new Error("Selector must have a value");
       //log?.debug("STEP IN ", lookup, paths.map(p => breadCrumb(p)));
-      const nodes = paths.filter(isNodePath).map(n => getPrimitiveChildrenOrNodePaths(lookup, n)).flat();
-      //log?.debug("LOOKUP", lookup, path.node.type, nodes.map(n => n.node));
-      //console.log(nodes);
-      /*const nodes: Array<PrimitiveValue | NodePath> = [];
-      for (const p of paths) {
+      
+      // Optimize: avoid filter().map().flat() chain - use single loop
+      const nodes: Array<PrimitiveValue | NodePath> = [];
+      for (let i = 0; i < paths.length; i++) {
+        const p = paths[i];
         if (!isNodePath(p)) continue;
         const arr = getPrimitiveChildrenOrNodePaths(lookup, p);
-        for (let i = 0; i < arr.length; i++) {
-          nodes.push(arr[i]);
+        for (let j = 0; j < arr.length; j++) {
+          nodes.push(arr[j]);
         }
-      }*/
-
-
+      }
 
       if (nodes.length == 0) return [];
       paths = nodes;
       if (startNode.resolve) {
-        const resolved = paths.filter(isNodePath).map(p => resolveBinding(p)).filter(isDefined).map(p => getChildren("init", p)).flat();
+        const resolved: NodePath[] = [];
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          if (!isNodePath(p)) continue;
+          const binding = resolveBinding(p);
+          if (!binding) continue;
+          const children = getChildren("init", binding);
+          for (let j = 0; j < children.length; j++) {
+            resolved.push(children[j]);
+          }
+        }
         if (resolved.length > 0) paths = resolved;
       } else if (startNode.binding) {
-        paths = paths.filter(isNodePath).map(p => resolveBinding(p)).filter(isDefined);
+        const bindings: NodePath[] = [];
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          if (!isNodePath(p)) continue;
+          const binding = resolveBinding(p);
+          if (binding) bindings.push(binding);
+        }
+        paths = bindings;
       }
       const filter = startNode.filter;
       if (filter) {
-        paths = paths.filter(isNodePath).filter(p => travHandle({subquery: filter}, p).subquery.length > 0);
+        const filtered: NodePath[] = [];
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          if (!isNodePath(p)) continue;
+          if (travHandle({subquery: filter}, p).subquery.length > 0) {
+            filtered.push(p);
+          }
+        }
+        paths = filtered;
       }
       if (!startNode.child) {
-        return paths.map(p => isPrimitive(p) ? p : p.node);
+        const results = new Array(paths.length);
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          results[i] = isPrimitive(p) ? p : p.node;
+        }
+        return results;
       }
       startNode = startNode.child;
     }
@@ -347,13 +372,18 @@ function createQuerier() {
     for (const path of paths) {
       if (isNodePath(path)) {
         if (memo.has(startNode) && memo.get(startNode)!.has(path)) {
-          result.push(...memo.get(startNode)!.get(path)!);
+          const cached = memo.get(startNode)!.get(path)!;
+          for (let i = 0; i < cached.length; i++) {
+            result.push(cached[i]);
+          }
         } else {
           const subQueryKey = "subquery-" + subQueryCounter++;
           const subQueryResult = travHandle({ [subQueryKey]: startNode }, path)[subQueryKey];
           if (!memo.has(startNode)) memo.set(startNode, new Map());
           memo.get(startNode)?.set(path, subQueryResult);
-          result.push(...subQueryResult);  
+          for (let i = 0; i < subQueryResult.length; i++) {
+            result.push(subQueryResult[i]);
+          }
         }
       }
     }
@@ -367,13 +397,15 @@ function createQuerier() {
     const filters = [];
     const nodeFilters = state.filtersMap[state.depth].get(fnode.node);
     if (nodeFilters) {
-      for (const f of nodeFilters) {
+      for (let i = 0; i < nodeFilters.length; i++) {
+        const f = nodeFilters[i];
         if (f.qNode !== fnode.node) continue;
         if (f.node !== path.node) continue;
         filters.push(f);
       }
       
-      for (const f of filters) {
+      for (let i = 0; i < filters.length; i++) {
+        const f = filters[i];
         if (evaluateFilter(f.filter, path).length > 0) {
           matchingFilters.push(f);
         }
@@ -387,7 +419,9 @@ function createQuerier() {
 
       if (fnode.node.child) {
         const result = resolveDirectly(fnode.node.child, resolved ?? path);
-        fnode.result.push(...result);
+        for (let i = 0; i < result.length; i++) {
+          fnode.result.push(result[i]);
+        }
       } else {
         fnode.result.push(path.node);
       }
@@ -396,7 +430,9 @@ function createQuerier() {
       if (binding) {
         if (fnode.node.child) {
           const result = resolveDirectly(fnode.node.child, binding);
-          fnode.result.push(...result);
+          for (let i = 0; i < result.length; i++) {
+            fnode.result.push(result[i]);
+          }
         } else {
           fnode.result.push(binding.node);
         }
@@ -409,13 +445,19 @@ function createQuerier() {
       resolveFunctionCalls(fnode, functionCallResult, path, state);
     } else if (matchingFilters.length > 0) {
       log?.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
-      fnode.result.push(...matchingFilters.flatMap(f => f.result));
+      for (let i = 0; i < matchingFilters.length; i++) {
+        const filterResult = matchingFilters[i].result;
+        for (let j = 0; j < filterResult.length; j++) {
+          fnode.result.push(filterResult[j]);
+        }
+      }
     } 
   }
 
   function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath, state: State) {
     const parameterResults: Result[][] = [];
-    for (const p of functionCallResult.parameters) {
+    for (let i = 0; i < functionCallResult.parameters.length; i++) {
+      const p = functionCallResult.parameters[i];
       if ("parameters" in p) {
         resolveFunctionCalls(p, p, path, state);
         parameterResults.push(p.result);
@@ -425,7 +467,9 @@ function createQuerier() {
     }
     const functionResult = functions[functionCallResult.functionCall.function].fn(parameterResults);
     log?.debug("PARAMETER RESULTS", functionCallResult.functionCall.function, parameterResults, functionResult);
-    fnode.result.push(...functionResult);
+    for (let i = 0; i < functionResult.length; i++) {
+      fnode.result.push(functionResult[i]);
+    }
   }
 
   function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath) : Record<keyof T, Result[]> {
@@ -632,7 +676,12 @@ export default function createTraverser() {
       if (key in path.node) {
         const r = (path.node as unknown as Record<string, unknown>)[key];
         if (Array.isArray(r)) {
-          return r.map((n, i) => createNodePath(n, i, key, path.scopeId, path.functionScopeId, path));
+          const len = r.length;
+          const result = new Array(len);
+          for (let i = 0; i < len; i++) {
+            result[i] = createNodePath(r[i], i, key, path.scopeId, path.functionScopeId, path);
+          }
+          return result;
         } else if (r != undefined) {
           return [createNodePath(r as ASTNode, key, key, path.scopeId, path.functionScopeId, path)];
         }
@@ -650,14 +699,16 @@ export default function createTraverser() {
     if (key in path.node) {
       const r = (path.node as unknown as Record<string, unknown>)[key];
       if (Array.isArray(r)) {
-        return r.map((n, i) => 
-          isPrimitive(n) ? n : 
-          // isLiteral(n) ? n.value as PrimitiveValue :
-          createNodePath(n, i, key, path.scopeId, path.functionScopeId, path));
+        const len = r.length;
+        const result = new Array(len);
+        for (let i = 0; i < len; i++) {
+          const n = r[i];
+          result[i] = isPrimitive(n) ? n : createNodePath(n, i, key, path.scopeId, path.functionScopeId, path);
+        }
+        return result;
       } else if (r != undefined) {
         return [
           isPrimitive(r) ? r : 
-          // isLiteral(r) ? r.value as PrimitiveValue :
           createNodePath(r as ASTNode, key, key, path.scopeId, path.functionScopeId, path)
         ];
       }
@@ -755,11 +806,13 @@ export default function createTraverser() {
     if (isScopable(node)) {
       childScopeId = createScope(scopeId);
     }
-    for (const key of keys) {
+    for (let keyIdx = 0; keyIdx < keys.length; keyIdx++) {
+      const key = keys[keyIdx];
       const childNodes = node[key as keyof ASTNode];
-      const children = toArray(childNodes).filter(isDefined);
-      for (const [i, child] of children.entries()) {
-        if (!isNode(child)) continue;
+      const children = toArray(childNodes);
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (!isDefined(child) || !isNode(child)) continue;
         const f = key === "body" && (isFunctionDeclaration(node) || isFunctionExpression(node)) ? childScopeId : functionScopeId;
         stack.push(child);
         if (isIdentifier(child)) {
@@ -788,19 +841,27 @@ export default function createTraverser() {
       const nodePath = path ?? createNodePath(node, undefined, undefined, scopeId, functionScopeId);
       const keys = VISITOR_KEYS[node.type];
       
-      if (nodePath.parentPath) registerBindings([nodePath.parentPath.parentPath?.node, nodePath.parentPath.node, nodePath.node].filter(isDefined), nodePath.scopeId, nodePath.functionScopeId);
+      if (nodePath.parentPath) {
+        const stack: ASTNode[] = [];
+        if (nodePath.parentPath.parentPath?.node) stack.push(nodePath.parentPath.parentPath.node);
+        stack.push(nodePath.parentPath.node, nodePath.node);
+        registerBindings(stack, nodePath.scopeId, nodePath.functionScopeId);
+      }
 
-      for (const key of keys) {
+      for (let keyIdx = 0; keyIdx < keys.length; keyIdx++) {
+        const key = keys[keyIdx];
         const childNodes = node[key as keyof ASTNode];
         const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
         const nodePaths: NodePath[] = [];
-        for (const [i, child] of children.entries()) {
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i];
           if (isNode(child)) {
             const childPath = createNodePath(child, Array.isArray(childNodes) ? i : key, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
             nodePaths.push(childPath);
           }
         }
-        for (const childPath of nodePaths) {
+        for (let i = 0; i < nodePaths.length; i++) {
+          const childPath = nodePaths[i];
           visitor.enter(childPath, state);
           traverseInner(childPath.node, visitor, nodePath.scopeId, nodePath.functionScopeId, state, childPath);
           visitor.exit(childPath, state);

@@ -66,12 +66,10 @@ function isIdentifierToken(token: Token | undefined) : token is IdentifierToken 
 
 const whitespace = " \n\r\t";
 
-function isCharacter(c: string) : boolean {
-  const charcode = c.charCodeAt(0);
+function isCharacter(charcode: number) : boolean {
   return (charcode >= 65 && charcode <= 90) || (charcode >= 97 && charcode <= 122);
 }
-function isInteger(c: string) : boolean {
-  const charcode = c.charCodeAt(0);
+function isInteger(charcode: number) : boolean {
   return (charcode >= 48 && charcode <= 57);
 }
 
@@ -170,15 +168,16 @@ export function tokenize(input: string) : Token[] {
       s++;
       continue;
     }
-    if (isCharacter(input[s])) {
+    const charCode = input.charCodeAt(s);
+    if (isCharacter(charCode)) {
       const start = s;
-      while (s < input.length && isCharacter(input[s])) s++;
+      while (s < input.length && isCharacter(input.charCodeAt(s))) s++;
       result.push({ tokenType: TokenType.IDENTIFIER, value: input.slice(start, s)});
       continue;
     }
-    if (isInteger(input[s])) {
+    if (isInteger(charCode)) {
       const start = s;
-      while (s < input.length && isInteger(input[s])) s++;
+      while (s < input.length && isInteger(input.charCodeAt(s))) s++;
       result.push({ tokenType: TokenType.LITERAL, value: input.slice(start, s)});
       continue;
     }
