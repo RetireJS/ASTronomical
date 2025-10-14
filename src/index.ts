@@ -27,15 +27,22 @@ export const functions = {
   },
   "concat": {
     fn: (result: Result[][]): Result[] => {
-      if (result.some(x => x.length == 0)) return [];
-      return [result.flat().join("")];
+      // Optimize: combine empty check with manual flattening
+      const flattened: Result[] = [];
+      for (let i = 0; i < result.length; i++) {
+        if (result[i].length === 0) return [];
+        for (let j = 0; j < result[i].length; j++) {
+          flattened.push(result[i][j]);
+        }
+      }
+      return [flattened.join("")];
     }
   },
   "first": {
     fn: (result: Result[][]): Result[] => {
       if (result.length != 1) throw new Error("Invalid number of arugments for first");
       if (result[0].length == 0) return [];
-      return [result.map(r => r[0])[0]];
+      return [result[0][0]];
     }
   },
   "nthchild" : {
@@ -258,7 +265,20 @@ function createQuerier() {
       if (filter.type == NodeType.EQUALS) {
         const left = evaluateFilter(filter.left, path);
         const right = evaluateFilter(filter.right, path);
-        const r = left.filter(x => right.includes(x));
+        // Optimize: use Set for O(1) lookups instead of O(n) includes
+        if (right.length > 3) {
+          const rightSet = new Set(right);
+          const r: Result[] = [];
+          for (let i = 0; i < left.length; i++) {
+            if (rightSet.has(left[i])) r.push(left[i]);
+          }
+          return r;
+        }
+        // For small arrays, includes is faster than Set creation
+        const r: Result[] = [];
+        for (let i = 0; i < left.length; i++) {
+          if (right.includes(left[i])) r.push(left[i]);
+        }
         return r;
       }
       throw new Error("Unknown filter type: " + filter.type);
@@ -473,7 +493,13 @@ function createQuerier() {
   }
 
   function travHandle<T extends Record<string, QNode>>(queries: T, root: NodePath) : Record<keyof T, Result[]> {
-    const results = Object.fromEntries(Object.keys(queries).map(name => [name, [] as Result[]])) as Record<keyof T, Result[]>;
+    // Optimize: create results object directly instead of Object.fromEntries + map
+    const results = {} as Record<keyof T, Result[]>;
+    const queryKeys = Object.keys(queries);
+    for (let i = 0; i < queryKeys.length; i++) {
+      results[queryKeys[i] as keyof T] = [];
+    }
+    
     const state: State = {
       depth: 0,
       child: [[],[]],
@@ -487,8 +513,19 @@ function createQuerier() {
     for (const [name, node] of Object.entries(queries)) {
       createFNodeAndAddToState(node, results[name], state);
     }
-    state.child[state.depth+1].forEach(fnode => addPrimitiveAttributeIfMatch(fnode, root));
-    state.descendant.slice(0, state.depth+1).forEach(fnodes => fnodes.forEach(fnode => addPrimitiveAttributeIfMatch(fnode, root)));
+    
+    // Optimize: replace forEach with for loop
+    const childAtDepth = state.child[state.depth+1];
+    for (let i = 0; i < childAtDepth.length; i++) {
+      addPrimitiveAttributeIfMatch(childAtDepth[i], root);
+    }
+    const descendantSlice = state.descendant.slice(0, state.depth+1);
+    for (let i = 0; i < descendantSlice.length; i++) {
+      const fnodes = descendantSlice[i];
+      for (let j = 0; j < fnodes.length; j++) {
+        addPrimitiveAttributeIfMatch(fnodes[j], root);
+      }
+    }
 
     traverse(root.node, {
       enter(path, state) {
@@ -512,14 +549,20 @@ function createQuerier() {
       exit(path, state) {
         log?.debug("EXIT", breadCrumb(path));
         // Check for attributes as not all attributes are visited
-        state.child[state.depth +1].forEach(fnode => addPrimitiveAttributeIfMatch(fnode, path));
-        for (const fnodes of state.descendant) {
-          for (const fnode of fnodes) {
-            addPrimitiveAttributeIfMatch(fnode, path);
+        // Optimize: replace forEach with for loop
+        const childAtDepthPlusOne = state.child[state.depth + 1];
+        for (let i = 0; i < childAtDepthPlusOne.length; i++) {
+          addPrimitiveAttributeIfMatch(childAtDepthPlusOne[i], path);
+        }
+        for (let i = 0; i < state.descendant.length; i++) {
+          const fnodes = state.descendant[i];
+          for (let j = 0; j < fnodes.length; j++) {
+            addPrimitiveAttributeIfMatch(fnodes[j], path);
           }
         }
-        for (const [fNode, path] of state.matches[state.depth]) {
-          addResultIfTokenMatch(fNode, path, state);
+        const matchesAtDepth = state.matches[state.depth];
+        for (let i = 0; i < matchesAtDepth.length; i++) {
+          addResultIfTokenMatch(matchesAtDepth[i][0], matchesAtDepth[i][1], state);
         }
         state.depth--;
         state.child.pop();
@@ -564,7 +607,13 @@ export function multiQuery<T extends Record<string, string>>(code: string | ASTN
   const start = Date.now();
   const ast = typeof code == "string" ? parseSource(code) : code;
   if (ast == null) throw new Error("Could not pase code");
-  const queries = Object.fromEntries(Object.entries(namedQueries).map(([name, query]) => [name, parse(query)])) as Record<keyof T, QNode>;
+  // Optimize: parse queries directly instead of Object.fromEntries + map
+  const queries = {} as Record<keyof T, QNode>;
+  const entries = Object.entries(namedQueries);
+  for (let i = 0; i < entries.length; i++) {
+    const [name, queryStr] = entries[i];
+    queries[name as keyof T] = parse(queryStr);
+  }
   const querier = createQuerier();
   const result = querier.beginHandle(queries, ast);
   log?.debug("Query time: ", Date.now() - start);
@@ -691,7 +740,16 @@ export default function createTraverser() {
   function getPrimitiveChildren(key: string, path: NodePath) : PrimitiveValue[] {
     if (key in path.node) {
       const r = (path.node as unknown as Record<string, unknown>)[key];
-      return toArray(r).filter(isDefined).filter(isPrimitive);
+      const arr = toArray(r);
+      // Optimize: single loop instead of chained filter()
+      const result: PrimitiveValue[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const item = arr[i];
+        if (isDefined(item) && isPrimitive(item)) {
+          result.push(item);
+        }
+      }
+      return result;
     }
     return [];
   }
@@ -846,6 +904,17 @@ export default function createTraverser() {
         if (nodePath.parentPath.parentPath?.node) stack.push(nodePath.parentPath.parentPath.node);
         stack.push(nodePath.parentPath.node, nodePath.node);
         registerBindings(stack, nodePath.scopeId, nodePath.functionScopeId);
+      }
+
+      // Optimization: Check if we need to traverse children at all
+      // If there are no descendant queries and no child queries at next depth, skip traversal
+      const stateTyped = state as unknown as State;
+      const hasDescendantQueries = stateTyped.descendant && stateTyped.descendant.some(arr => arr.length > 0);
+      const hasChildQueriesAtNextDepth = stateTyped.child && stateTyped.child[stateTyped.depth + 1] && stateTyped.child[stateTyped.depth + 1].length > 0;
+      
+      // If no queries would match in this subtree, skip traversal entirely
+      if (!hasDescendantQueries && !hasChildQueriesAtNextDepth) {
+        return;
       }
 
       for (let keyIdx = 0; keyIdx < keys.length; keyIdx++) {

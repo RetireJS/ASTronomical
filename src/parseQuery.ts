@@ -9,7 +9,13 @@ const log = debugLogEnabled ? {
   }
 } : undefined;
 
-const supportedIdentifiers: Record<string, keyof typeof VISITOR_KEYS> = Object.fromEntries(Object.keys(VISITOR_KEYS).map(k => [k, k as keyof typeof VISITOR_KEYS]));
+// Optimize: create supportedIdentifiers directly instead of Object.fromEntries + map
+const visitorKeys = Object.keys(VISITOR_KEYS);
+const supportedIdentifiers: Record<string, keyof typeof VISITOR_KEYS> = {};
+for (let i = 0; i < visitorKeys.length; i++) {
+  const k = visitorKeys[i];
+  supportedIdentifiers[k] = k as keyof typeof VISITOR_KEYS;
+}
 
 export enum TokenType {
   IDENTIFIER,
