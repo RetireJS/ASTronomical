@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.1-rc.0] - 2025-10-14
+
+### Performance upgrades
+
+* Reduce memory/GC
+
 ## [2.0.1] - 2025-06-04
 
 ### Performance upgrades
