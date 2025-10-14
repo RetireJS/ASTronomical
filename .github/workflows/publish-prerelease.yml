@@ -1,0 +1,29 @@
+name: Publish Prerelease to npm (next tag)
+on:
+  release:
+    types: [prereleased]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "18.x"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm
+      - run: npm ci
+      - name: Lint
+        run: npm run check
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm run test
+      - name: Publish to next tag
+        run: npm publish --tag next --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
