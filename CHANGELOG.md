@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.0] - 2026-01-18
+
+* Fix broken CJS/ESM dual build
+
 ## [2.1.1-rc.0] - 2025-10-14
 
 ### Performance upgrades
