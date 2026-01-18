@@ -1,18 +1,15 @@
 {
   "name": "astronomical",
-  "version": "2.1.1-rc.1",
+  "version": "3.0.0",
   "type": "commonjs",
   "description": "offers a way to query a Javascript AST to find specific patterns using a syntax somewhat similar to XPath.",
+  "sideEffects": false,
   "scripts": {
     "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf lib && mkdir lib",
-    "build": "npm run clean && npm run build:esm && npm run build:cjs",
-    "build:esm": "tsc",
-    "build:cjs": "tsc -p ./tsconfig.cjs.json",
-    "watch": "tsc --watch",
+    "build": "tsup",
+    "watch": "tsup --watch",
     "check": "npm run lint && npm run typecheck",
-    "dev": "tsc --watch",
     "testWatch": "jest --watchAll",
     "test": "jest --ci",
     "prepack": "npm run build"
@@ -31,6 +28,7 @@
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.2.4",
     "ts-jest": "^29.1.2",
+    "tsup": "^8.5.1",
     "typescript": "^5.3.3"
   },
   "dependencies": {
@@ -42,15 +40,15 @@
   "exports": {
     ".": {
       "import": {
-        "types": "./lib/esm/types/index.d.ts",
-        "default": "./lib/esm/index.mjs"
+        "types": "./lib/index.d.mts",
+        "default": "./lib/index.mjs"
       },
       "require": {
-        "types": "./lib/cjs/types/index.d.ts",
-        "default": "./lib/cjs/index.js"
+        "types": "./lib/index.d.ts",
+        "default": "./lib/index.js"
       }
     }
   },
-  "types": "./lib/cjs/types/index.d.ts",
-  "main": "./lib/cjs/index.js"
+  "types": "./lib/index.d.ts",
+  "main": "./lib/index.js"
 }

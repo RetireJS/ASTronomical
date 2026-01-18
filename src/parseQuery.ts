@@ -1,4 +1,5 @@
-import { AvailableFunction, isAvailableFunction } from ".";
+import type { AvailableFunction } from ".";
+import { isAvailableFunction } from ".";
 import { VISITOR_KEYS } from "./nodeutils";
 
 const debugLogEnabled = false;

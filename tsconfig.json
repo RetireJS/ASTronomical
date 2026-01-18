@@ -6,16 +6,13 @@
     "skipLibCheck": true,
     "checkJs": true,
     "allowJs": true,
-    "declaration": true,
-    "declarationMap": true,
     "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
 
     "lib": ["ES2022"],
     "target": "ES2022",
     "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "outDir": "./lib/esm",
-    "declarationDir": "./lib/esm/types"
+    "moduleResolution": "NodeNext"
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "**/__tests__/*"]

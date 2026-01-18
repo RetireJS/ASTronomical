@@ -1,6 +1,5 @@
 import { ESTree } from "meriyah";
-import { ASTNode, NodePath } from ".";
-import { PrimitiveValue } from ".";
+import type { ASTNode, NodePath, PrimitiveValue } from ".";
 
 export const isNode = (candidate: unknown) : candidate is ASTNode => {
   return typeof candidate === "object" && candidate != null && "type" in candidate;
