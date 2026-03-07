@@ -307,6 +307,12 @@ describe('testing index file', () => {
     expect(nodes).toEqual([22]);
   })
   
+  test("should find TemplateElement's value", () => {
+    const code = "const a = `Hey`;"
+    const nodes = query(code, "//TemplateElement/:value/:raw");
+    expect(nodes).toEqual(["Hey"]);
+  })
+
 });
 
 

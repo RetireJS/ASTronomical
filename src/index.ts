@@ -471,7 +471,14 @@ function createQuerier() {
           fnode.result.push(filterResult[j]);
         }
       }
-    } 
+    } else if (fnode.node.child.attribute && fnode.result.length === 0) {
+      // Handle attribute children that weren't resolved through normal traversal
+      // (e.g., when accessing nested properties of non-AST objects like TemplateElement.value.raw)
+      const result = resolveDirectly(fnode.node.child, path);
+      for (let i = 0; i < result.length; i++) {
+        fnode.result.push(result[i]);
+      }
+    }
   }
 
   function resolveFunctionCalls(fnode: FNode, functionCallResult: FunctionCallResult, path: NodePath, state: State) {
