@@ -287,6 +287,11 @@ function createQuerier() {
       const r = resolveFilterWithParent(filter.node, path);
       return r;
     }
+    // If result is empty and node is an attribute selector, try resolving directly
+    // (handles cases like /:value/:raw where value is a plain object, not an AST node)
+    if (filter.result.length === 0 && filter.node.attribute) {
+      return resolveDirectly(filter.node, path);
+    }
     return filter.result;
   }
 
