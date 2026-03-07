@@ -5,7 +5,7 @@
   "description": "offers a way to query a Javascript AST to find specific patterns using a syntax somewhat similar to XPath.",
   "sideEffects": false,
   "scripts": {
-    "lint": "eslint . --ext .ts --fix --ignore-path .gitignore",
+    "lint": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "build": "tsup",
     "watch": "tsup --watch",
@@ -21,15 +21,17 @@
   "author": "Erlend Oftedal <erlend@oftedal.no>",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@eslint/js": "^9.18.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.5",
-    "@typescript-eslint/eslint-plugin": "^8.56.1",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.4.0",
     "prettier": "^3.2.4",
     "ts-jest": "^29.1.2",
     "tsup": "^8.5.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.56.1"
   },
   "dependencies": {
     "meriyah": "^6.0.3"

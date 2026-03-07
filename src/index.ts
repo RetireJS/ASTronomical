@@ -634,7 +634,7 @@ export function parseSource(source: string, optimize: boolean = true) : ASTNode 
   const parsingOptions = optimize ? {loc: false, ranges: false } : {loc: true, ranges: true };
   try {
     return parseScript(source, { module: true, next: true, ...parsingOptions });
-  } catch(e) {
+  } catch {
     return parseScript(source, { module: false, next: true, ...parsingOptions, webcompat: true });
   }
 }

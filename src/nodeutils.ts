@@ -197,7 +197,7 @@ export const VISITOR_KEYS: Record<ESTree.Node["type"], string[]> = {
   ImportExpression: ["source"],
   Decorator: ["expression"],
   PropertyDefinition: ["key", "value"],
-  Import: ["source"],
+  AccessorProperty: ["key", "value"],
   JSXAttribute: ["name", "value"],
   JSXNamespacedName: ["namespace", "name"],
   JSXElement: ["openingElement", "closingElement", "children"],
