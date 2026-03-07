@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.2] - 2026-03-07
+
+- Fix problem with resolving TemplateElement values in filters
+
 ## [3.0.1] - 2026-03-07
 
 - Fix problem with resolving TemplateElement values
