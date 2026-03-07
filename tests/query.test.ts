@@ -313,10 +313,22 @@ describe('testing index file', () => {
     expect(nodes).toEqual(["Hey"]);
   })
 
+  test("should find multiple TemplateElement's values", () => {
+    const code = "const a =`Hey`;const b =`Hallo`;"
+    const nodes = query(code, "//TemplateElement/:value/:raw");
+    expect(nodes).toEqual(["Hey", "Hallo"]);
+  })
+
   test("should find TemplateElement's value as filter", () => {
     const code = "const a = `Hey`;"
     const nodes = query(code, "//TemplateElement[/:value/:raw == \"Hey\"]");
     expect(nodes.length).toEqual(1);
+  })
+
+  test("should find multiple TemplateElement's value as filter", () => {
+    const code = "const a = `Hey`;const b = `Hey`;"
+    const nodes = query(code, "//TemplateElement[/:value/:raw == \"Hey\"]");
+    expect(nodes.length).toEqual(2);
   })
 
 });

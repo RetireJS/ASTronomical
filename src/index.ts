@@ -476,12 +476,27 @@ function createQuerier() {
           fnode.result.push(filterResult[j]);
         }
       }
-    } else if (fnode.node.child.attribute && fnode.result.length === 0) {
+    } else if (fnode.node.child.attribute) {
       // Handle attribute children that weren't resolved through normal traversal
       // (e.g., when accessing nested properties of non-AST objects like TemplateElement.value.raw)
-      const result = resolveDirectly(fnode.node.child, path);
-      for (let i = 0; i < result.length; i++) {
-        fnode.result.push(result[i]);
+      // Skip leaf attributes - they're handled by addPrimitiveAttributeIfMatch
+      // Only process if there's a child chain (like /:value/:raw)
+      if (fnode.node.child.child || fnode.node.child.filter) {
+        const attrName = fnode.node.child.value;
+        if (attrName) {
+          const attrValue = (path.node as unknown as Record<string, unknown>)[attrName];
+          // Check if the attribute value would NOT be traversed normally (i.e., not an AST node)
+          const isASTNode = (v: unknown): boolean => 
+            typeof v === 'object' && v !== null && 'type' in v;
+          const wouldBeTraversed = isASTNode(attrValue) || 
+            (Array.isArray(attrValue) && attrValue.length > 0 && isASTNode(attrValue[0]));
+          if (!wouldBeTraversed) {
+            const result = resolveDirectly(fnode.node.child, path);
+            for (let i = 0; i < result.length; i++) {
+              fnode.result.push(result[i]);
+            }
+          }
+        }
       }
     }
   }
