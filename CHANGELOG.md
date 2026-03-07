@@ -3,6 +3,7 @@
 ## [3.0.1] - 2026-03-07
 
 - Fix problem with resolving TemplateElement values
+- Update dependencies and fix related stuff
 
 ## [3.0.0] - 2026-01-18
 
