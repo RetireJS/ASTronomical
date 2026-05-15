@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.0.5] - 2026-05-15
+
+- Upgrade meriyah to 7.x (`sourceType` replaces `module: boolean`)
+- Disable regex validation (`validateRegex: false`) during parsing
+
 ## [3.0.4] - 2026-05-15
 
 - Add JSX parsing support by falling back to meriyah's `jsx` option when non-JSX parsing fails (tries both module and script modes)
