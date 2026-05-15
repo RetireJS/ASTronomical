@@ -1,5 +1,9 @@
 # Changelog
 
+## [3.0.4] - 2026-05-15
+
+- Add JSX parsing support by falling back to meriyah's `jsx` option when non-JSX parsing fails (tries both module and script modes)
+
 ## [3.0.3] - 2026-03-07
 
 - Fix problem with resolving TemplateElement values in filters

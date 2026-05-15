@@ -331,6 +331,22 @@ describe('testing index file', () => {
     expect(nodes.length).toEqual(2);
   })
 
+  test("should parse JSX and find element names", () => {
+    const code = `import React from 'react';
+    const App = () => <div className="app"><span>Hello</span></div>;`;
+    const nodes = query(code, "//JSXOpeningElement/:name/:name");
+    expect(nodes).toEqual(["div", "span"]);
+  });
+
+  test("should parse JSX module with import/export and find element names", () => {
+    const code = `import React from 'react';
+    export default function App() {
+      return <h1>Hello</h1>;
+    }`;
+    const nodes = query(code, "//JSXOpeningElement/:name/:name");
+    expect(nodes).toEqual(["h1"]);
+  });
+
 });
 
 
