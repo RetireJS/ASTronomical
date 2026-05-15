@@ -1,5 +1,5 @@
 import { FunctionCall, NodeType, parse, QNode } from "./parseQuery";
-import { parseScript } from "meriyah";
+import { parse as parseJS } from "meriyah";
 import { isNodePath, VISITOR_KEYS, isAssignmentExpression, isBinding, isExportSpecifier, isFunctionDeclaration, isFunctionExpression, isIdentifier, isMemberExpression, isNode, isPrimitive, isScopable, isScope, isUpdateExpression, isVariableDeclaration, isVariableDeclarator } from "./nodeutils";
 import { ESTree } from "meriyah";
 import { isDefined, toArray } from "./utils";
@@ -652,16 +652,17 @@ export function multiQuery<T extends Record<string, string>>(code: string | ASTN
 
 export function parseSource(source: string, optimize: boolean = true) : ASTNode {
   const parsingOptions = optimize ? {loc: false, ranges: false } : {loc: true, ranges: true };
+  const base = { next: true, validateRegex: false, ...parsingOptions };
   try {
-    return parseScript(source, { module: true, next: true, ...parsingOptions });
+    return parseJS(source, { ...base, sourceType: 'module' });
   } catch {
     try {
-      return parseScript(source, { module: false, next: true, ...parsingOptions, webcompat: true });
+      return parseJS(source, { ...base, sourceType: 'script', webcompat: true });
     } catch {
       try {
-        return parseScript(source, { module: true, next: true, ...parsingOptions, jsx: true });
+        return parseJS(source, { ...base, sourceType: 'module', jsx: true });
       } catch {
-        return parseScript(source, { module: false, next: true, ...parsingOptions, webcompat: true, jsx: true });
+        return parseJS(source, { ...base, sourceType: 'script', webcompat: true, jsx: true });
       }
     }
   }

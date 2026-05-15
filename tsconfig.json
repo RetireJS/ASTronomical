@@ -9,10 +9,12 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
 
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "dom"],
     "target": "ES2022",
     "module": "NodeNext",
-    "moduleResolution": "NodeNext"
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "ignoreDeprecations": "6.0"
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "**/__tests__/*"]
