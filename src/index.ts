@@ -69,8 +69,13 @@ type Result = ASTNode | PrimitiveValue;
 
 
 type FNode = {
-  node: QNode, 
-  result: Array<Result>
+  node: QNode,
+  result: Array<Result>,
+  // Insertion order among active descendant selectors. Assigned when a
+  // descendant FNode becomes active so that, when several descendant selectors
+  // match the same node, we can dispatch them in the exact depth-major order the
+  // old full-scan used (keeps result ordering stable).
+  seq?: number
 };
 
 type State = {
@@ -78,9 +83,21 @@ type State = {
   child: FNode[][];
   descendant: FNode[][];
   filters: FilterResult[][];
-  filtersMap: Array<Map<QNode, FilterResult[]>>;
+  // Lazily allocated per depth: most nodes carry no filter, so we avoid
+  // allocating a Map for every visited node.
+  filtersMap: Array<Map<QNode, FilterResult[]> | undefined>;
   matches: [FNode, NodePath][][];
   functionCalls: FunctionCallResult[][];
+  // Index of the currently-active descendant ("//") selectors, kept in lockstep
+  // with `descendant`. Lets each visited node look up only the selectors that
+  // could match its type instead of scanning every active descendant selector.
+  // Arbitrary-depth matching is unchanged: selectors stay active for their whole
+  // subtree; only the lookup is faster.
+  descendantByType: Map<string, FNode[]>;
+  descendantOther: FNode[]; // wildcard (//*) and attribute selectors: checked at every node
+  descendantAttr: FNode[];  // attribute descendant selectors: used by the exit primitive pass
+  descendantActiveCount: number;
+  seqCounter: number;
 }
 type FilterCondition = {
   type: typeof NodeType.AND | typeof NodeType.OR | typeof NodeType.EQUALS;
@@ -141,6 +158,52 @@ function createQuerier() {
     };
   }
 
+  // Make a descendant FNode active: record it on the per-depth `descendant`
+  // stack (unchanged) and mirror it into the type index so future nodes can
+  // find it by their node type in O(1).
+  function activateDescendant(fnode: FNode, state: State) {
+    state.descendant[state.depth + 1].push(fnode);
+    fnode.seq = state.seqCounter++;
+    const value = fnode.node.value;
+    if (fnode.node.attribute) {
+      // Attribute selector (//:name): matches on key, so must be tried on every
+      // node; also drives the primitive-attribute pass on exit.
+      state.descendantOther.push(fnode);
+      state.descendantAttr.push(fnode);
+    } else if (value == "*") {
+      state.descendantOther.push(fnode);
+    } else if (value != undefined) {
+      let bucket = state.descendantByType.get(value);
+      if (!bucket) {
+        bucket = [];
+        state.descendantByType.set(value, bucket);
+      }
+      bucket.push(fnode);
+    }
+    state.descendantActiveCount++;
+  }
+
+  function removeFromBucket(arr: FNode[], fnode: FNode) {
+    // Deactivation is LIFO with activation, so the target is at (or near) the
+    // end; lastIndexOf keeps this close to O(1) for the tiny buckets involved.
+    const i = arr.lastIndexOf(fnode);
+    if (i >= 0) arr.splice(i, 1);
+  }
+
+  function deactivateDescendant(fnode: FNode, state: State) {
+    const value = fnode.node.value;
+    if (fnode.node.attribute) {
+      removeFromBucket(state.descendantOther, fnode);
+      removeFromBucket(state.descendantAttr, fnode);
+    } else if (value == "*") {
+      removeFromBucket(state.descendantOther, fnode);
+    } else if (value != undefined) {
+      const bucket = state.descendantByType.get(value);
+      if (bucket) removeFromBucket(bucket, fnode);
+    }
+    state.descendantActiveCount--;
+  }
+
   function addFilterChildrenToState(filter: FilterNode, state: State) {    
     if ("type" in filter && (filter.type == NodeType.AND || filter.type == NodeType.OR || filter.type == NodeType.EQUALS)) {
       addFilterChildrenToState(filter.left, state);
@@ -152,7 +215,7 @@ function createQuerier() {
       }
       if (filter.node.type == NodeType.DESCENDANT) {
         log?.debug("ADDING FILTER DESCENDANT", filter.node);
-        state.descendant[state.depth+1].push(filter);
+        activateDescendant(filter, state);
       }
     }
   }
@@ -163,7 +226,7 @@ function createQuerier() {
     if (token.type == NodeType.CHILD) {
       state.child[state.depth+1].push(fnode);
     } else if (token.type == NodeType.DESCENDANT) {
-      state.descendant[state.depth+1].push(fnode);
+      activateDescendant(fnode, state);
     }
     return fnode;
   }
@@ -183,16 +246,28 @@ function createQuerier() {
   }
   function addIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
     if (!isMatch(fnode, path)) return;
+    addMatch(fnode, path, state);
+  }
+
+  // Body of addIfTokenMatch once a match is known. Callable directly when the
+  // match is guaranteed (e.g. a type-bucket lookup already keyed on node type),
+  // avoiding a redundant isMatch on the hottest path.
+  function addMatch(fnode: FNode, path: NodePath, state: State) {
     state.matches[state.depth].push([fnode, path]);
     if (fnode.node.filter) {
       const filter = createFilter(fnode.node.filter, []);
       const filteredResult: Array<Result> = [];
       const f = { filter: filter, qNode: fnode.node, node: path.node, result: filteredResult };
       state.filters[state.depth].push(f);
-      let fmap = state.filtersMap[state.depth].get(fnode.node);
+      let fmapContainer = state.filtersMap[state.depth];
+      if (!fmapContainer) {
+        fmapContainer = new Map();
+        state.filtersMap[state.depth] = fmapContainer;
+      }
+      let fmap = fmapContainer.get(fnode.node);
       if (!fmap) {
         fmap = [];
-        state.filtersMap[state.depth].set(fnode.node, fmap);
+        fmapContainer.set(fnode.node, fmap);
       }
       fmap.push(f);
       addFilterChildrenToState(filter, state);
@@ -420,7 +495,8 @@ function createQuerier() {
     const matchingFilters = [];
     //console.log("FILTERS", state.filters[state.depth].length, state.filtersMap[state.depth].get(fnode.node)?.length);
     const filters = [];
-    const nodeFilters = state.filtersMap[state.depth].get(fnode.node);
+    const fmapContainer = state.filtersMap[state.depth];
+    const nodeFilters = fmapContainer ? fmapContainer.get(fnode.node) : undefined;
     if (nodeFilters) {
       for (let i = 0; i < nodeFilters.length; i++) {
         const f = nodeFilters[i];
@@ -532,26 +608,28 @@ function createQuerier() {
       child: [[],[]],
       descendant: [[],[]],
       filters: [[],[]],
-      filtersMap: [new Map(), new Map()],
+      filtersMap: [undefined, undefined],
       matches: [[]],
-      functionCalls: [[]]
+      functionCalls: [[]],
+      descendantByType: new Map(),
+      descendantOther: [],
+      descendantAttr: [],
+      descendantActiveCount: 0,
+      seqCounter: 0
     };
 
     for (const [name, node] of Object.entries(queries)) {
       createFNodeAndAddToState(node, results[name], state);
     }
-    
+
     // Optimize: replace forEach with for loop
     const childAtDepth = state.child[state.depth+1];
     for (let i = 0; i < childAtDepth.length; i++) {
       addPrimitiveAttributeIfMatch(childAtDepth[i], root);
     }
-    const descendantSlice = state.descendant.slice(0, state.depth+1);
-    for (let i = 0; i < descendantSlice.length; i++) {
-      const fnodes = descendantSlice[i];
-      for (let j = 0; j < fnodes.length; j++) {
-        addPrimitiveAttributeIfMatch(fnodes[j], root);
-      }
+    // Only attribute descendant selectors do anything in the primitive pass.
+    for (let i = 0; i < state.descendantAttr.length; i++) {
+      addPrimitiveAttributeIfMatch(state.descendantAttr[i], root);
     }
 
     traverse(root.node, {
@@ -561,15 +639,39 @@ function createQuerier() {
         state.child.push([]);
         state.descendant.push([]);
         state.filters.push([]);
-        state.filtersMap.push(new Map());
+        state.filtersMap.push(undefined);
         state.matches.push([]);
         state.functionCalls.push([]);
         for (const fnode of state.child[state.depth]) {
           addIfTokenMatch(fnode, path, state);
         }
-        for (const fnodes of state.descendant.slice(0, state.depth + 1)) {
-          for (const fnode of fnodes) {
-            addIfTokenMatch(fnode, path, state);
+        // Descendant selectors active for this node: only those targeting this
+        // node's type (O(1) lookup) plus the always-checked wildcard/attribute
+        // selectors. Each bucket is already in activation (seq) order, so when a
+        // single source applies no sort is needed; only when both contribute do
+        // we merge by seq to reproduce the old depth-major ordering. Lengths are
+        // snapshotted so selectors this node activates for its children are not
+        // matched against the node itself.
+        const bucket = state.descendantByType.get(path.node.type);
+        const other = state.descendantOther;
+        const bucketLen = bucket ? bucket.length : 0;
+        const otherLen = other.length;
+        if (otherLen == 0) {
+          // Bucket entries are keyed on node type, so the match is guaranteed.
+          for (let i = 0; i < bucketLen; i++) {
+            addMatch(bucket![i], path, state);
+          }
+        } else if (bucketLen == 0) {
+          for (let i = 0; i < otherLen; i++) {
+            addIfTokenMatch(other[i], path, state);
+          }
+        } else {
+          const cands: FNode[] = [];
+          for (let i = 0; i < bucketLen; i++) cands.push(bucket![i]);
+          for (let i = 0; i < otherLen; i++) cands.push(other[i]);
+          cands.sort((a, b) => a.seq! - b.seq!);
+          for (let i = 0; i < cands.length; i++) {
+            addIfTokenMatch(cands[i], path, state);
           }
         }
       },
@@ -581,15 +683,21 @@ function createQuerier() {
         for (let i = 0; i < childAtDepthPlusOne.length; i++) {
           addPrimitiveAttributeIfMatch(childAtDepthPlusOne[i], path);
         }
-        for (let i = 0; i < state.descendant.length; i++) {
-          const fnodes = state.descendant[i];
-          for (let j = 0; j < fnodes.length; j++) {
-            addPrimitiveAttributeIfMatch(fnodes[j], path);
-          }
+        // Equivalent to scanning every active descendant selector, but only
+        // attribute selectors do any work here. descendantAttr is in activation
+        // (depth-major) order, matching the old scan order.
+        for (let i = 0; i < state.descendantAttr.length; i++) {
+          addPrimitiveAttributeIfMatch(state.descendantAttr[i], path);
         }
         const matchesAtDepth = state.matches[state.depth];
         for (let i = 0; i < matchesAtDepth.length; i++) {
           addResultIfTokenMatch(matchesAtDepth[i][0], matchesAtDepth[i][1], state);
+        }
+        // Deactivate descendant selectors this node added for its subtree before
+        // unwinding the per-depth stack, keeping the type index in lockstep.
+        const leavingDescendants = state.descendant[state.descendant.length - 1];
+        for (let i = 0; i < leavingDescendants.length; i++) {
+          deactivateDescendant(leavingDescendants[i], state);
         }
         state.depth--;
         state.child.pop();
@@ -945,7 +1053,7 @@ export default function createTraverser() {
       // Optimization: Check if we need to traverse children at all
       // If there are no descendant queries and no child queries at next depth, skip traversal
       const stateTyped = state as unknown as State;
-      const hasDescendantQueries = stateTyped.descendant && stateTyped.descendant.some(arr => arr.length > 0);
+      const hasDescendantQueries = stateTyped.descendantActiveCount > 0;
       const hasChildQueriesAtNextDepth = stateTyped.child && stateTyped.child[stateTyped.depth + 1] && stateTyped.child[stateTyped.depth + 1].length > 0;
       
       // If no queries would match in this subtree, skip traversal entirely
@@ -956,17 +1064,19 @@ export default function createTraverser() {
       for (let keyIdx = 0; keyIdx < keys.length; keyIdx++) {
         const key = keys[keyIdx];
         const childNodes = node[key as keyof ASTNode];
-        const children = Array.isArray(childNodes) ? childNodes : childNodes ? [childNodes] : [];
-        const nodePaths: NodePath[] = [];
-        for (let i = 0; i < children.length; i++) {
-          const child = children[i];
-          if (isNode(child)) {
-            const childPath = createNodePath(child, Array.isArray(childNodes) ? i : key, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
-            nodePaths.push(childPath);
+        if (childNodes == undefined) continue;
+        // Visit children directly, avoiding the per-key intermediate arrays.
+        if (Array.isArray(childNodes)) {
+          for (let i = 0; i < childNodes.length; i++) {
+            const child = childNodes[i];
+            if (!isNode(child)) continue;
+            const childPath = createNodePath(child, i, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
+            visitor.enter(childPath, state);
+            traverseInner(childPath.node, visitor, nodePath.scopeId, nodePath.functionScopeId, state, childPath);
+            visitor.exit(childPath, state);
           }
-        }
-        for (let i = 0; i < nodePaths.length; i++) {
-          const childPath = nodePaths[i];
+        } else if (isNode(childNodes)) {
+          const childPath = createNodePath(childNodes as ASTNode, key, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
           visitor.enter(childPath, state);
           traverseInner(childPath.node, visitor, nodePath.scopeId, nodePath.functionScopeId, state, childPath);
           visitor.exit(childPath, state);

@@ -5,7 +5,7 @@ import globals from "globals";
 
 export default tseslint.config(
   {
-    ignores: ["lib/**", "tmp/**", "performance-analysis/**", "node_modules/**"],
+    ignores: ["lib/**", "tmp/**", "performance-analysis/**", "node_modules/**", "bench/**"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

@@ -12,6 +12,7 @@
     "check": "npm run lint && npm run typecheck",
     "testWatch": "jest --watchAll",
     "test": "jest --ci",
+    "bench": "node bench/run.js",
     "prepack": "npm run build"
   },
   "repository": {
