@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.6] - 2026-06-05
+
+### Performance upgrades
+
+- Index active descendant (`//Type`) selectors by node type so each visited node only checks the selectors that can match its type, instead of scanning every active descendant selector (arbitrary-depth matching unchanged)
+- Lazily allocate the per-depth filter map, avoiding a Map allocation for every visited node
+- Replace the per-node descendant-presence scan and `slice()` with O(1) checks
+- ~23% faster querying on large minified/bundled files
+
 ## [3.0.5] - 2026-05-15
 
 - Upgrade meriyah to 7.x (`sourceType` replaces `module: boolean`)
