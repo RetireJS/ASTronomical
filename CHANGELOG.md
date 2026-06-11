@@ -1,6 +1,18 @@
 # Changelog
 
-## [3.0.6] - 2026-06-05
+## [3.0.7] - 2026-06-11
+
+### Performance upgrades
+
+- Store scope ids as a flat `scopeId` property on AST nodes instead of a nested `extra` object, removing an object allocation per node
+- Materialize `NodePath` objects lazily — only when a selector actually matches — instead of for every visited node (ancestors are materialized on demand, so `../` filter chains are unchanged)
+- Key the per-depth filter map by AST node instead of query node, making filter lookup O(1) instead of scanning filters accumulated across siblings
+- Remove dead per-depth filter stack and allocate filter-result arrays lazily (most matches carry no filter)
+- Skip the binding-registration call for already-registered subtrees and avoid wrapper-array allocations in the binding pass
+- Gate debug-only statistics counters that did a hash write per created path
+- ~10% faster on the retire.js detection suite; retained heap during a query on large files reduced by more than half
+
+
 
 ### Performance upgrades
 

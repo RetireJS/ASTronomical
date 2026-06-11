@@ -43,7 +43,7 @@ Consumers import from `lib/`, not `src/` — always run `npm run build` before t
 2. The `AvailableFunction` type in `parseQuery.ts` is derived from `typeof functions` — no manual update needed unless you change the type structure.
 3. Add tests in `tests/`.
 
-**Bindings and scopes:** Scope IDs are stored on AST nodes as `extra.scopeId`. The `nodePathMap` WeakMap ties AST nodes to their `NodePath`. Do not mutate node identity or add per-node state — this silently breaks memoization and binding lookups.
+**Bindings and scopes:** Scope IDs are stored on AST nodes as a flat `scopeId` property (a nested wrapper object would cost an allocation per node). The `nodePathMap` WeakMap ties AST nodes to their `NodePath`; during traversal a `NodePath` is only materialized when a selector actually matches. Do not mutate node identity or add per-node state — this silently breaks memoization and binding lookups.
 
 **Performance (large/minified files):**
 - Use `multiQuery` instead of repeated `query` calls — the traverser is designed for a single pass over multiple queries.

@@ -82,10 +82,11 @@ type State = {
   depth: number;
   child: FNode[][];
   descendant: FNode[][];
-  filters: FilterResult[][];
-  // Lazily allocated per depth: most nodes carry no filter, so we avoid
-  // allocating a Map for every visited node.
-  filtersMap: Array<Map<QNode, FilterResult[]> | undefined>;
+  // Lazily allocated per depth and keyed by the AST node, so looking up the
+  // filters for a (selector, node) pair is O(1) even when many siblings at the
+  // same depth carry filters. Most nodes carry no filter, so the Map itself is
+  // only allocated when one appears at that depth.
+  filtersMap: Array<Map<ASTNode, FilterResult[]> | undefined>;
   matches: [FNode, NodePath][][];
   functionCalls: FunctionCallResult[][];
   // Index of the currently-active descendant ("//") selectors, kept in lockstep
@@ -231,43 +232,37 @@ function createQuerier() {
     return fnode;
   }
 
-  function isMatch(fnode: FNode, path: NodePath) : boolean {
+  // Matching needs only the node's type and its position keys, all available
+  // without materializing a NodePath. Loose equality on `key` is intentional:
+  // array indices are kept as numbers in the traversal frames while query
+  // values are strings.
+  function isMatch(fnode: FNode, node: ASTNode, key: string | number | undefined, parentKey: string | undefined) : boolean {
     if (fnode.node.attribute) {
-      const m = fnode.node.value == path.parentKey || fnode.node.value == path.key
-      if (m) log?.debug("ATTR MATCH", fnode.node.value, breadCrumb(path));
-      return m;
+      return fnode.node.value == parentKey || fnode.node.value == key;
     }
     if (fnode.node.value == "*") {
       return true;
     }
-    const m = fnode.node.value == path.node.type
-    if (m) log?.debug("NODE MATCH", fnode.node.value, breadCrumb(path));
-    return m;
-  }
-  function addIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
-    if (!isMatch(fnode, path)) return;
-    addMatch(fnode, path, state);
+    return fnode.node.value == node.type;
   }
 
-  // Body of addIfTokenMatch once a match is known. Callable directly when the
-  // match is guaranteed (e.g. a type-bucket lookup already keyed on node type),
-  // avoiding a redundant isMatch on the hottest path.
+  // Records a match. The NodePath is only materialized by the caller when a
+  // match actually occurs, so most visited nodes never allocate one.
   function addMatch(fnode: FNode, path: NodePath, state: State) {
     state.matches[state.depth].push([fnode, path]);
     if (fnode.node.filter) {
       const filter = createFilter(fnode.node.filter, []);
       const filteredResult: Array<Result> = [];
       const f = { filter: filter, qNode: fnode.node, node: path.node, result: filteredResult };
-      state.filters[state.depth].push(f);
       let fmapContainer = state.filtersMap[state.depth];
       if (!fmapContainer) {
         fmapContainer = new Map();
         state.filtersMap[state.depth] = fmapContainer;
       }
-      let fmap = fmapContainer.get(fnode.node);
+      let fmap = fmapContainer.get(path.node);
       if (!fmap) {
         fmap = [];
-        fmapContainer.set(fnode.node, fmap);
+        fmapContainer.set(path.node, fmap);
       }
       fmap.push(f);
       addFilterChildrenToState(filter, state);
@@ -308,11 +303,11 @@ function createQuerier() {
   }
 
 
-  function addPrimitiveAttributeIfMatch(fnode: FNode, path: NodePath) {
+  function addPrimitiveAttributeIfMatch(fnode: FNode, node: ASTNode) {
     if (!fnode.node.attribute || fnode.node.value == undefined) return;
     if (fnode.node.child || fnode.node.filter) return;
-    if (!Object.hasOwn(path.node, fnode.node.value)) return;
-    const nodes = getPrimitiveChildren(fnode.node.value, path);
+    if (!Object.hasOwn(node, fnode.node.value)) return;
+    const nodes = getPrimitiveChildren(fnode.node.value, node);
     if (nodes.length == 0) return;
     log?.debug("PRIMITIVE", fnode.node.value, nodes);
     fnode.result.push(...nodes);
@@ -471,16 +466,20 @@ function createQuerier() {
     //console.log(paths.length, subQueryCounter);
     for (const path of paths) {
       if (isNodePath(path)) {
-        if (memo.has(startNode) && memo.get(startNode)!.has(path)) {
-          const cached = memo.get(startNode)!.get(path)!;
+        let nodeMemo = memo.get(startNode);
+        const cached = nodeMemo ? nodeMemo.get(path) : undefined;
+        if (cached) {
           for (let i = 0; i < cached.length; i++) {
             result.push(cached[i]);
           }
         } else {
           const subQueryKey = "subquery-" + subQueryCounter++;
           const subQueryResult = travHandle({ [subQueryKey]: startNode }, path)[subQueryKey];
-          if (!memo.has(startNode)) memo.set(startNode, new Map());
-          memo.get(startNode)?.set(path, subQueryResult);
+          if (!nodeMemo) {
+            nodeMemo = new Map();
+            memo.set(startNode, nodeMemo);
+          }
+          nodeMemo.set(path, subQueryResult);
           for (let i = 0; i < subQueryResult.length; i++) {
             result.push(subQueryResult[i]);
           }
@@ -492,26 +491,22 @@ function createQuerier() {
   }
 
   function addResultIfTokenMatch(fnode: FNode, path: NodePath, state: State) {
-    const matchingFilters = [];
-    //console.log("FILTERS", state.filters[state.depth].length, state.filtersMap[state.depth].get(fnode.node)?.length);
-    const filters = [];
+    // Lazily allocated: the vast majority of matches carry no filter, and this
+    // runs once per match.
+    let matchingFilters: FilterResult[] | undefined;
     const fmapContainer = state.filtersMap[state.depth];
-    const nodeFilters = fmapContainer ? fmapContainer.get(fnode.node) : undefined;
+    const nodeFilters = fmapContainer ? fmapContainer.get(path.node) : undefined;
     if (nodeFilters) {
+      let filterCount = 0;
       for (let i = 0; i < nodeFilters.length; i++) {
         const f = nodeFilters[i];
         if (f.qNode !== fnode.node) continue;
-        if (f.node !== path.node) continue;
-        filters.push(f);
-      }
-      
-      for (let i = 0; i < filters.length; i++) {
-        const f = filters[i];
+        filterCount++;
         if (evaluateFilter(f.filter, path).length > 0) {
-          matchingFilters.push(f);
+          (matchingFilters ??= []).push(f);
         }
       }
-      if (filters.length > 0 && matchingFilters.length == 0) return;
+      if (filterCount > 0 && matchingFilters == undefined) return;
     }
 
     if (fnode.node.resolve) {
@@ -544,7 +539,7 @@ function createQuerier() {
       const functionCallResult = state.functionCalls[state.depth].find(f => f.node == fnode.node);
       if (!functionCallResult) throw new Error("Did not find expected function call for " + fnode.node.child.function);
       resolveFunctionCalls(fnode, functionCallResult, path, state);
-    } else if (matchingFilters.length > 0) {
+    } else if (matchingFilters != undefined) {
       log?.debug("HAS MATCHING FILTER", fnode.result.length, matchingFilters.length, breadCrumb(path));
       for (let i = 0; i < matchingFilters.length; i++) {
         const filterResult = matchingFilters[i].result;
@@ -607,7 +602,6 @@ function createQuerier() {
       depth: 0,
       child: [[],[]],
       descendant: [[],[]],
-      filters: [[],[]],
       filtersMap: [undefined, undefined],
       matches: [[]],
       functionCalls: [[]],
@@ -625,25 +619,31 @@ function createQuerier() {
     // Optimize: replace forEach with for loop
     const childAtDepth = state.child[state.depth+1];
     for (let i = 0; i < childAtDepth.length; i++) {
-      addPrimitiveAttributeIfMatch(childAtDepth[i], root);
+      addPrimitiveAttributeIfMatch(childAtDepth[i], root.node);
     }
     // Only attribute descendant selectors do anything in the primitive pass.
     for (let i = 0; i < state.descendantAttr.length; i++) {
-      addPrimitiveAttributeIfMatch(state.descendantAttr[i], root);
+      addPrimitiveAttributeIfMatch(state.descendantAttr[i], root.node);
     }
 
     traverse(root.node, {
-      enter(path, state) {
-        //log?.debug("ENTER", breadCrumb(path));
+      enter(node, key, parentKey, materialize, state) {
         state.depth++;
         state.child.push([]);
         state.descendant.push([]);
-        state.filters.push([]);
         state.filtersMap.push(undefined);
         state.matches.push([]);
         state.functionCalls.push([]);
-        for (const fnode of state.child[state.depth]) {
-          addIfTokenMatch(fnode, path, state);
+        const depth = state.depth;
+        // Materialized lazily on the first match at this node; most nodes
+        // match nothing and never pay for a NodePath.
+        let path: NodePath | undefined;
+        const childAtDepth = state.child[depth];
+        for (let i = 0; i < childAtDepth.length; i++) {
+          const fnode = childAtDepth[i];
+          if (isMatch(fnode, node, key, parentKey)) {
+            addMatch(fnode, path ?? (path = materialize(depth)), state);
+          }
         }
         // Descendant selectors active for this node: only those targeting this
         // node's type (O(1) lookup) plus the always-checked wildcard/attribute
@@ -652,18 +652,21 @@ function createQuerier() {
         // we merge by seq to reproduce the old depth-major ordering. Lengths are
         // snapshotted so selectors this node activates for its children are not
         // matched against the node itself.
-        const bucket = state.descendantByType.get(path.node.type);
+        const bucket = state.descendantByType.get(node.type);
         const other = state.descendantOther;
         const bucketLen = bucket ? bucket.length : 0;
         const otherLen = other.length;
         if (otherLen == 0) {
           // Bucket entries are keyed on node type, so the match is guaranteed.
           for (let i = 0; i < bucketLen; i++) {
-            addMatch(bucket![i], path, state);
+            addMatch(bucket![i], path ?? (path = materialize(depth)), state);
           }
         } else if (bucketLen == 0) {
           for (let i = 0; i < otherLen; i++) {
-            addIfTokenMatch(other[i], path, state);
+            const fnode = other[i];
+            if (isMatch(fnode, node, key, parentKey)) {
+              addMatch(fnode, path ?? (path = materialize(depth)), state);
+            }
           }
         } else {
           const cands: FNode[] = [];
@@ -671,23 +674,25 @@ function createQuerier() {
           for (let i = 0; i < otherLen; i++) cands.push(other[i]);
           cands.sort((a, b) => a.seq! - b.seq!);
           for (let i = 0; i < cands.length; i++) {
-            addIfTokenMatch(cands[i], path, state);
+            const fnode = cands[i];
+            if (isMatch(fnode, node, key, parentKey)) {
+              addMatch(fnode, path ?? (path = materialize(depth)), state);
+            }
           }
         }
       },
-      exit(path, state) {
-        log?.debug("EXIT", breadCrumb(path));
+      exit(node, state) {
         // Check for attributes as not all attributes are visited
         // Optimize: replace forEach with for loop
         const childAtDepthPlusOne = state.child[state.depth + 1];
         for (let i = 0; i < childAtDepthPlusOne.length; i++) {
-          addPrimitiveAttributeIfMatch(childAtDepthPlusOne[i], path);
+          addPrimitiveAttributeIfMatch(childAtDepthPlusOne[i], node);
         }
         // Equivalent to scanning every active descendant selector, but only
         // attribute selectors do any work here. descendantAttr is in activation
         // (depth-major) order, matching the old scan order.
         for (let i = 0; i < state.descendantAttr.length; i++) {
-          addPrimitiveAttributeIfMatch(state.descendantAttr[i], path);
+          addPrimitiveAttributeIfMatch(state.descendantAttr[i], node);
         }
         const matchesAtDepth = state.matches[state.depth];
         for (let i = 0; i < matchesAtDepth.length; i++) {
@@ -702,7 +707,6 @@ function createQuerier() {
         state.depth--;
         state.child.pop();
         state.descendant.pop();
-        state.filters.pop();
         state.filtersMap.pop();
         state.matches.pop();
         state.functionCalls.pop();
@@ -790,11 +794,9 @@ export type Scope = {
 
 
 export type ASTNode = ESTree.Node & {
-  extra?: {
-    scopeId?: number;
-    functionScopeId?: number;
-    nodePath?: NodePath;
-  }
+  // Internal: scope id assigned during binding registration. Stored as a flat
+  // property (not a nested object) to avoid allocating a wrapper per AST node.
+  scopeId?: number;
 };
 
 export type NodePath = {
@@ -806,9 +808,12 @@ export type NodePath = {
   functionScopeId: number;
 };
 
+// The visitor receives raw nodes plus their position keys; a NodePath is only
+// created on demand via `materialize(depth)` (memoized per depth by the
+// traversal), so nodes that match nothing never allocate one.
 type Visitor<T> = {
-  enter: (path: NodePath, state: T) => void;
-  exit: (path: NodePath, state: T) => void;
+  enter: (node: ASTNode, key: string | number | undefined, parentKey: string | undefined, materialize: (depth: number) => NodePath, state: T) => void;
+  exit: (node: ASTNode, state: T) => void;
 }
 
 export default function createTraverser() {
@@ -881,9 +886,9 @@ export default function createTraverser() {
       }
       return [];
   }
-  function getPrimitiveChildren(key: string, path: NodePath) : PrimitiveValue[] {
-    if (key in path.node) {
-      const r = (path.node as unknown as Record<string, unknown>)[key];
+  function getPrimitiveChildren(key: string, node: ASTNode) : PrimitiveValue[] {
+    if (key in node) {
+      const r = (node as unknown as Record<string, unknown>)[key];
       const arr = toArray(r);
       // Optimize: single loop instead of chained filter()
       const result: PrimitiveValue[] = [];
@@ -920,10 +925,9 @@ export default function createTraverser() {
   const nodePathMap = new WeakMap<ASTNode, NodePath>();
 
   function createNodePath(node: ASTNode, key: string | undefined | number, parentKey: string | undefined, scopeId: number | undefined, functionScopeId: number | undefined, nodePath?: NodePath) : NodePath {
-    if (nodePathMap.has(node)) {
-    //if (node.extra?.nodePath) {
-      //const path = node.extra.nodePath;
-      const path = nodePathMap.get(node)!;
+    const existing = nodePathMap.get(node);
+    if (existing) {
+      const path = existing;
       if (nodePath && isExportSpecifier(nodePath.node) && key == "exported" && path.key == "local") {
         //Special handling for "export { someName }" as id is both local and exported
         path.key = "exported"; 
@@ -937,8 +941,8 @@ export default function createTraverser() {
       return path;
     }
 
-    const finalScope: number = ((node.extra && node.extra.scopeId != undefined) ? node.extra.scopeId : scopeId) ?? createScope();
-    const finalFScope: number = ((node.extra && node.extra.functionScopeId != undefined) ? node.extra.functionScopeId : functionScopeId) ?? finalScope;
+    const finalScope: number = (node.scopeId != undefined ? node.scopeId : scopeId) ?? createScope();
+    const finalFScope: number = functionScopeId ?? finalScope;
     const path: NodePath = {
       node,
       scopeId: finalScope,
@@ -948,13 +952,12 @@ export default function createTraverser() {
       parentKey
     }
     if (isNode(node)) {
-      //node.extra = node.extra ?? {};
-      //node.extra.nodePath = path;
-      //Object.defineProperty(node.extra, "nodePath", { enumerable: false });
       nodePathMap.set(node, path);
     }
-    nodePathsCreated[node.type] = (nodePathsCreated[node.type] ?? 0) + 1;
-    pathsCreated++;
+    if (debugLogEnabled) {
+      nodePathsCreated[node.type] = (nodePathsCreated[node.type] ?? 0) + 1;
+      pathsCreated++;
+    }
     return path;
   }
 
@@ -997,10 +1000,9 @@ export default function createTraverser() {
   function registerBindings(stack: ASTNode[], scopeId: number, functionScopeId: number) {
     const node = stack[stack.length - 1];
     if (!isNode(node)) return
-    if (node.extra?.scopeId != undefined) return;
-    node.extra = node.extra ?? {};
-    node.extra.scopeId = scopeId;
-    bindingNodesVisited++;
+    if (node.scopeId != undefined) return;
+    node.scopeId = scopeId;
+    if (debugLogEnabled) bindingNodesVisited++;
     const keys = VISITOR_KEYS[node.type];
     if (keys.length == 0) return;
 
@@ -1011,15 +1013,27 @@ export default function createTraverser() {
     for (let keyIdx = 0; keyIdx < keys.length; keyIdx++) {
       const key = keys[keyIdx];
       const childNodes = node[key as keyof ASTNode];
-      const children = toArray(childNodes);
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        if (!isDefined(child) || !isNode(child)) continue;
+      if (childNodes == undefined) continue;
+      // Visit children directly, avoiding a toArray wrapper per (node, key).
+      if (Array.isArray(childNodes)) {
+        for (let i = 0; i < childNodes.length; i++) {
+          const child = childNodes[i];
+          if (!isDefined(child) || !isNode(child)) continue;
+          const f = key === "body" && (isFunctionDeclaration(node) || isFunctionExpression(node)) ? childScopeId : functionScopeId;
+          stack.push(child);
+          if (isIdentifier(child)) {
+            registerBinding(stack, childScopeId, f, i, key);
+          } else {
+            registerBindings(stack, childScopeId, f);
+          }
+          stack.pop();
+        }
+      } else if (isNode(childNodes)) {
+        const child = childNodes as ASTNode;
         const f = key === "body" && (isFunctionDeclaration(node) || isFunctionExpression(node)) ? childScopeId : functionScopeId;
         stack.push(child);
         if (isIdentifier(child)) {
-          const k = Array.isArray(childNodes) ? i : key;
-          registerBinding(stack, childScopeId, f, k, key);
+          registerBinding(stack, childScopeId, f, key, key);
         } else {
           registerBindings(stack, childScopeId, f);
         }
@@ -1032,35 +1046,63 @@ export default function createTraverser() {
     }
   }
 
-  function traverseInner<T>(
-    node: ASTNode,
+  const sOut: number[] = [];
+
+  function traverse<T>(  node: ASTNode,
     visitor: Visitor<T>,
     scopeId: number | undefined,
-    functionScopeId: number | undefined,
-    state: T, 
-    path?: NodePath
-    ) {
-      const nodePath = path ?? createNodePath(node, undefined, undefined, scopeId, functionScopeId);
-      const keys = VISITOR_KEYS[node.type];
-      
-      if (nodePath.parentPath) {
-        const stack: ASTNode[] = [];
-        if (nodePath.parentPath.parentPath?.node) stack.push(nodePath.parentPath.parentPath.node);
-        stack.push(nodePath.parentPath.node, nodePath.node);
-        registerBindings(stack, nodePath.scopeId, nodePath.functionScopeId);
+    state: T,
+    path?: NodePath) {
+    const rootPath = path ?? createNodePath(node, undefined, undefined, scopeId, scopeId);
+    // Per-traversal frame stacks, indexed by depth and reused across siblings.
+    // They carry everything needed to materialize a NodePath on demand, so a
+    // node that matches nothing never allocates one. The frames are local to
+    // this call because filter subqueries re-enter traverse() while an outer
+    // traversal is still live.
+    const fNodes: ASTNode[] = [node];
+    const fKeys: (string | number | undefined)[] = [undefined];
+    const fParentKeys: (string | undefined)[] = [undefined];
+    const fPaths: (NodePath | undefined)[] = [rootPath];
+    const fScopes: number[] = [rootPath.scopeId];
+    // The function scope only ever propagates the root's value down the
+    // traversal (createNodePath always inherits the parent's), so it is a
+    // per-traversal constant rather than a frame.
+    const fScope = rootPath.functionScopeId;
+    const bindingStack: ASTNode[] = [];
+
+    // Create the NodePath for the frame at `depth`, materializing any missing
+    // ancestors first so parentPath chains (needed by `../` filters) stay
+    // intact. Memoized per depth; createNodePath itself dedupes via WeakMap.
+    function materializePath(depth: number): NodePath {
+      const existing = fPaths[depth];
+      if (existing) return existing;
+      const parent = materializePath(depth - 1);
+      const p = createNodePath(fNodes[depth], fKeys[depth], fParentKeys[depth], fScopes[depth - 1], fScope, parent);
+      fPaths[depth] = p;
+      return p;
+    }
+
+    function traverseInner(node: ASTNode, depth: number) {
+      // Register bindings for this subtree; already-registered nodes (the
+      // common case once a top-level subtree has been walked) skip the call.
+      if (depth > 0 && node.scopeId == undefined) {
+        bindingStack.length = 0;
+        if (depth > 1) bindingStack.push(fNodes[depth - 2]);
+        bindingStack.push(fNodes[depth - 1], node);
+        registerBindings(bindingStack, fScopes[depth], fScope);
       }
 
       // Optimization: Check if we need to traverse children at all
       // If there are no descendant queries and no child queries at next depth, skip traversal
       const stateTyped = state as unknown as State;
-      const hasDescendantQueries = stateTyped.descendantActiveCount > 0;
-      const hasChildQueriesAtNextDepth = stateTyped.child && stateTyped.child[stateTyped.depth + 1] && stateTyped.child[stateTyped.depth + 1].length > 0;
-      
-      // If no queries would match in this subtree, skip traversal entirely
-      if (!hasDescendantQueries && !hasChildQueriesAtNextDepth) {
-        return;
+      if (stateTyped.descendantActiveCount === 0) {
+        const childQueries = stateTyped.child[stateTyped.depth + 1];
+        if (!childQueries || childQueries.length === 0) return;
       }
 
+      const keys = VISITOR_KEYS[node.type];
+      const scope = fScopes[depth];
+      const childDepth = depth + 1;
       for (let keyIdx = 0; keyIdx < keys.length; keyIdx++) {
         const key = keys[keyIdx];
         const childNodes = node[key as keyof ASTNode];
@@ -1070,37 +1112,37 @@ export default function createTraverser() {
           for (let i = 0; i < childNodes.length; i++) {
             const child = childNodes[i];
             if (!isNode(child)) continue;
-            const childPath = createNodePath(child, i, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
-            visitor.enter(childPath, state);
-            traverseInner(childPath.node, visitor, nodePath.scopeId, nodePath.functionScopeId, state, childPath);
-            visitor.exit(childPath, state);
+            fNodes[childDepth] = child;
+            fKeys[childDepth] = i;
+            fParentKeys[childDepth] = key;
+            fPaths[childDepth] = undefined;
+            fScopes[childDepth] = child.scopeId != undefined ? child.scopeId : scope;
+            visitor.enter(child, i, key, materializePath, state);
+            traverseInner(child, childDepth);
+            visitor.exit(child, state);
           }
         } else if (isNode(childNodes)) {
-          const childPath = createNodePath(childNodes as ASTNode, key, key, nodePath.scopeId, nodePath.functionScopeId, nodePath);
-          visitor.enter(childPath, state);
-          traverseInner(childPath.node, visitor, nodePath.scopeId, nodePath.functionScopeId, state, childPath);
-          visitor.exit(childPath, state);
+          const child = childNodes as ASTNode;
+          fNodes[childDepth] = child;
+          fKeys[childDepth] = key;
+          fParentKeys[childDepth] = key;
+          fPaths[childDepth] = undefined;
+          fScopes[childDepth] = child.scopeId != undefined ? child.scopeId : scope;
+          visitor.enter(child, key, key, materializePath, state);
+          traverseInner(child, childDepth);
+          visitor.exit(child, state);
         }
       }
-  }
+    }
 
-  const sOut: number[] = [];
+    traverseInner(node, 0);
 
-  function traverse<T>(  node: ASTNode,
-    visitor: Visitor<T>,
-    scopeId: number | undefined, 
-    state: T, 
-    path?: NodePath) {
-    const fscope = path?.functionScopeId ?? node.extra?.functionScopeId ?? scopeId;
-    traverseInner(node, visitor, scopeId, fscope, state, path);
-    if (!sOut.includes(scopeIdCounter)) {
+    if (debugLogEnabled && !sOut.includes(scopeIdCounter)) {
       log?.debug("Scopes created", scopeIdCounter, " Scopes removed", removedScopes, "Paths created", pathsCreated, bindingNodesVisited);
       sOut.push(scopeIdCounter);
       const k = Object.fromEntries(Object.entries(nodePathsCreated).sort((a, b) => a[1] - b[1]));
       log?.debug("Node paths created", k);
     }
-
-
   }
   return {
     traverse,
