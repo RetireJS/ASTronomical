@@ -10,8 +10,8 @@
     "build": "tsup",
     "watch": "tsup --watch",
     "check": "npm run lint && npm run typecheck",
-    "testWatch": "jest --watchAll",
-    "test": "jest --ci",
+    "testWatch": "node --import tsx --test --watch tests/**/*.test.ts",
+    "test": "node --import tsx --test tests/**/*.test.ts",
     "bench": "node bench/run.js",
     "prepack": "npm run build"
   },
@@ -23,14 +23,14 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/jest": "^30.0.0",
     "@types/node": "^24.12.4",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
+    "expect": "^30.4.1",
     "globals": "^17.4.0",
     "prettier": "^3.2.4",
-    "ts-jest": "^29.1.2",
     "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.56.1"
   },

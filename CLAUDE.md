@@ -10,11 +10,11 @@ npm run watch        # build in watch mode during development
 npm run typecheck    # tsc --noEmit
 npm run lint         # eslint --fix
 npm run check        # lint + typecheck
-npm test             # jest --ci
-npm run testWatch    # jest --watchAll
+npm test             # node:test via tsx
+npm run testWatch    # node:test watch mode via tsx
 ```
 
-Run a single test file: `npx jest tests/query.test.ts`
+Run a single test file: `node --import tsx --test tests/query.test.ts`
 
 Consumers import from `lib/`, not `src/` — always run `npm run build` before testing integration or publishing.
 

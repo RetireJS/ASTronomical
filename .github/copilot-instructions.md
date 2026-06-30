@@ -19,7 +19,7 @@ Key files to reference:
 - Build (local): npm run build — runs `tsc` twice (ESM and CJS) and creates `lib/`
 - Typecheck: npm run typecheck (runs `tsc --noEmit`)
 - Lint: npm run lint (eslint with --fix)
-- Test: npm test (uses `jest --ci`). Use `npm run testWatch` for interactive development.
+- Test: npm test (uses `node:test` via `tsx`). Use `npm run testWatch` for interactive development.
 - Prepack: `npm pack` will run `prepack` which triggers `npm run build` via package scripts.
 
 If you edit TypeScript sources, run `npm run build` (or `npm run watch` during development) before publishing; consumers import from `lib/`.
@@ -34,7 +34,7 @@ If you edit TypeScript sources, run `npm run build` (or `npm run watch` during d
 ## Integration points and external dependencies
 
 - Parsing: `meriyah` is the only runtime parser dependency (see `package.json`). `parseSource` calls `parseScript` with `webcompat` fallback when appropriate.
-- Tests: Jest + ts-jest. Tests live in `tests/` and exercise query parsing and runtime behaviour. Look at `tests/parseQuery.test.ts` and `tests/query.test.ts` for representative cases.
+- Tests: Node's built-in `node:test` runner (with `tsx` for TypeScript). Tests live in `tests/` and exercise query parsing and runtime behaviour. Look at `tests/parseQuery.test.ts` and `tests/query.test.ts` for representative cases.
 - Consumers import the built files from `lib/` (types are under `lib/*/types`). Changing public API requires updating `exports` in `package.json` if you move files.
 
 ## Small, concrete examples for the agent

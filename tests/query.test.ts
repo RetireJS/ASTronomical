@@ -1,3 +1,5 @@
+import { describe, test } from 'node:test';
+import { expect } from 'expect';
 import { multiQuery, query } from '../src/index';
 import { ESTree as t } from "meriyah";
 
@@ -348,5 +350,4 @@ describe('testing index file', () => {
   });
 
 });
-
 

@@ -1,3 +1,5 @@
+import { describe, test } from 'node:test';
+import { expect } from 'expect';
 import { tokenize, parse, Condition, FunctionCall, NodeType, TokenType } from '../src/parseQuery';
 
 describe('tokenization', () => {
